@@ -35,10 +35,28 @@ description: 当需要制作汇报 PPT、演示文稿、幻灯片、deck，或�
 
 ## 快速开始
 
-```python
-import sys; sys.path.insert(0, ".cursor/skills/exec-deck-builder/scripts")
-from deckkit import Deck, Rect, check_overflow
+先确认环境：`python3 <skill>/scripts/doctor.py`。缺依赖时跑 `bash .cursor/setup.sh`
+一次装齐（幂等，重复跑安全）。
 
+**导入 deckkit 用下面这段，不要写死相对路径。** Cursor 没有承诺脚本执行时的工作
+目录，`sys.path.insert(0, ".cursor/skills/...")` 换个目录跑就会 ImportError：
+
+```python
+import sys, pathlib
+try:
+    from deckkit import Deck, Rect, check_overflow      # 装过就直接可用
+except ImportError:                                      # 没装则从仓库里逐级向上找
+    _hits = [b / r / "exec-deck-builder" / "scripts"
+             for b in [pathlib.Path.cwd(), *pathlib.Path.cwd().parents]
+             for r in (".cursor/skills", ".agents/skills", ".claude/skills")]
+    sys.path[:0] = [str(p) for p in _hits if p.is_dir()][:1]
+    from deckkit import Deck, Rect, check_overflow
+```
+
+跑过 `bash .cursor/setup.sh` 或 `bash .cursor/skills/install.sh` 之后
+`import deckkit` 在任何目录都能用，上面的兜底分支不会被走到。
+
+```python
 deck = Deck(theme="dark", canvas="wide")   # theme: dark/light/slate；canvas: wide/large
 
 deck.cover(title="2026 年上半年生产运营回顾", subtitle="产能、质量与瓶颈复盘",
@@ -271,12 +289,23 @@ s.text(Rect(ii.x, iy, ii.w, band_top - iy - 0.10), desc,   # 中间吃掉剩余
 
 ## 依赖
 
+**一条命令装齐**（幂等，重复跑安全，也是 Cloud Agent 每次新建 VM 时自动执行的）：
+
 ```bash
-pip install python-pptx Pillow          # 生成 + 图片处理（必需）
-# 渲染预览（可选，但强烈建议装，用于第 4 步视觉复核）
-#   macOS   brew install --cask libreoffice && brew install poppler
-#   Ubuntu  sudo apt-get install -y libreoffice-impress poppler-utils fonts-noto-cjk
+bash .cursor/setup.sh              # 装 Python 依赖 + 渲染预览工具 + 注册 deckkit
+bash .cursor/setup.sh --minimal    # 只装生成 pptx 所需，跳过渲染工具
+bash .cursor/setup.sh --check      # 只检查不安装
 ```
+
+不确定环境状态、或者哪个脚本报 ImportError 时先体检：
+
+```bash
+python3 scripts/doctor.py          # 逐项列出就绪/缺失，缺什么给准确的安装命令
+```
+
+手动装的话：`pip install python-pptx Pillow` 是必需的；渲染预览还需要 LibreOffice
+与 poppler（macOS `brew install --cask libreoffice && brew install poppler`；
+Ubuntu `sudo apt-get install -y libreoffice-impress poppler-utils fonts-noto-cjk`）。
 
 字体：脚本写入的字体名由**打开文件的那台机器**渲染。中文默认用微软雅黑（Windows
 Office 自带）。
@@ -293,11 +322,15 @@ Office 自带）。
 
 | 脚本 | 用途 |
 |---|---|
+| `python3 scripts/doctor.py` | 环境体检，缺依赖时给出准确的安装命令 |
 | `python3 scripts/check_deck.py x.pptx --strict` | 交付前质检。error 必须清零；`--strict` 下 warn 也会让退出码非零，逐条看过再决定 |
 | `python3 scripts/render_deck.py x.pptx out/ --grid` | 渲染逐页 PNG（统一命名 `slide-01.png`）+ 总览图 |
 | `python3 scripts/selftest.py` | 改动 deckkit.py 后跑回归自测：度量函数、主题配色、图表着色、全组件 x 3 主题 x 2 画布 |
 | `python3 assets/example_deck.py [输出路径]` | 11 页参照汇报（标准画布） |
 | `python3 assets/example_brand.py [输出路径]` | 3 页企业品牌色示例（大画布 + 封面背景图） |
+
+装过之后（`setup.sh` 或 `install.sh` 会自动做）还有三个全局命令，不用记 skill 路径：
+`deck-doctor`、`deck-check x.pptx --strict`、`deck-render x.pptx out/`。
 
 质检的分工要清楚：**`check_deck.py` 只能保证"文字读得出来"**（不溢出、不越界、
 不被盖住、对比度够、字体对），**保证不了"版面好看"**。留白是否均匀、重点是否突出、

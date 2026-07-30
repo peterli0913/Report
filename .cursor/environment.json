@@ -1,0 +1,4 @@
+{
+  "name": "汇报材料制作环境",
+  "install": "bash .cursor/setup.sh"
+}

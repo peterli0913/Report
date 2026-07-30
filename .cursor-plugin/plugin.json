@@ -1,0 +1,19 @@
+{
+  "name": "asymchem-report-kit",
+  "description": "面向中文高层汇报的材料制作套件：生成 PPT 与网页版汇报，含视觉规范、CDMO 指标体系、配图与质检工具。",
+  "version": "1.0.0",
+  "author": {
+    "name": "生产管理部"
+  },
+  "license": "见各 skill 目录内的 LICENSE.txt",
+  "keywords": [
+    "presentation",
+    "pptx",
+    "report",
+    "汇报",
+    "PPT",
+    "生产管理",
+    "CDMO"
+  ],
+  "skills": "./.cursor/skills/"
+}

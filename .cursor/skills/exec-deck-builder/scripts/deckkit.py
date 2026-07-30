@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import math
+import os
 import re
 from dataclasses import dataclass, field, replace
 
@@ -1777,6 +1778,11 @@ class Deck:
         return self
 
     def save(self, path):
+        # 自动建目录：调用方常常传 输出/日期/汇报.pptx 这种嵌套路径，
+        # python-pptx 不会替你建，直接抛 FileNotFoundError。
+        parent = os.path.dirname(os.path.abspath(path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         self.prs.save(path)
         return path
 

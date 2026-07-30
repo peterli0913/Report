@@ -166,8 +166,16 @@ KPI 卡的完整写法：
 用 `scripts/svg_chart.py` 生成内联 SVG，不要引图表库 —— CDN 在内网拉不到会整页
 空白，canvas 图表打印时经常输出空白。
 
+用下面这段导入，**不要写死相对路径** —— Cursor 没有承诺脚本执行时的工作目录，
+`sys.path.insert(0, ".cursor/skills/...")` 换个目录跑就会 ImportError：
+
 ```python
-import sys; sys.path.insert(0, ".cursor/skills/html-exec-report/scripts")
+import sys, pathlib
+_hits = [b / r / "html-exec-report" / "scripts"
+         for b in [pathlib.Path.cwd(), *pathlib.Path.cwd().parents]
+         for r in (".cursor/skills", ".agents/skills", ".claude/skills")]
+sys.path[:0] = [str(p) for p in _hits if p.is_dir()][:1]
+
 from svg_chart import bar, hbar, line, stacked, donut, legend, progress
 
 series = [("2025 年", [148, 132, 165]), ("2026 年", [186, 171, 208])]
