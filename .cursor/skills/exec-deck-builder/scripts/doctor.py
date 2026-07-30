@@ -50,17 +50,22 @@ def _mod(name):
         return False
 
 
-def _mod_registered(name):
-    """检测模块是否在本脚本目录之外也能 import（即真的注册进了环境）。
+def _registered_path(name):
+    """返回该模块在本脚本目录之外解析到的文件路径，未注册则返回 None。
 
-    直接用 importlib 会误判：doctor.py 自己就在 scripts/ 里，Python 会把该目录
-    放进 sys.path[0]，同目录的 deckkit.py 于是"总是能 import"。
+    两个坑：
+    - 直接 importlib 会误判：doctor.py 自己就在 scripts/ 里，Python 会把该目录放进
+      sys.path[0]，同目录的 deckkit.py 于是"总是能 import"。所以起子进程测。
+    - 只报"已注册"不够：机器上可能装着**另一个项目**的同名副本，于是你改了本仓库
+      的 deckkit 却不生效，这种问题极难排查。所以要把解析到的路径打出来。
     """
     try:
-        r = subprocess.run([sys.executable, "-c", "import %s" % name],
-                           capture_output=True, timeout=30,
-                           cwd=os.path.expanduser("~"))
-        return r.returncode == 0
+        r = subprocess.run(
+            [sys.executable, "-c",
+             "import %s,sys; print(getattr(%s,'__file__','?'))" % (name, name)],
+            capture_output=True, text=True, timeout=30,
+            cwd=os.path.expanduser("~"))
+        return r.stdout.strip() if r.returncode == 0 else None
     except Exception:
         return None
 
@@ -91,8 +96,15 @@ def collect():
     rows.append(("python-pptx", True, _mod("pptx"), "生成 pptx 的核心依赖"))
     rows.append(("Pillow", True, _mod("PIL"),
                  "图片裁剪、图标与背景生成、渲染图拼版"))
-    rows.append(("deckkit 已注册为模块", False, _mod_registered("deckkit"),
-                 "装了之后任何目录都能 import deckkit"))
+
+    dk = _registered_path("deckkit")
+    if dk:
+        # 指向别的仓库时要明确警告：那意味着你改本仓库的代码不会生效
+        same = os.path.dirname(os.path.abspath(dk)) == os.path.abspath(HERE)
+        note = ("解析到 %s%s" % (dk, "" if same else "  ← 不是本仓库的副本！"))
+    else:
+        note = "装了之后任何目录都能 import deckkit"
+    rows.append(("deckkit 已注册为模块", False, bool(dk), note))
 
     soffice = _cmd("soffice", "libreoffice")
     rows.append(("LibreOffice", False, bool(soffice),
@@ -124,7 +136,10 @@ def main():
         }, ensure_ascii=False, indent=2))
         return 1 if missing_required else 0
 
-    if quiet and not missing_required and not missing_optional:
+    # 指向别的仓库的副本即使"已注册"也要提醒，否则改了代码不生效很难查
+    wrong_copy = [r for r in rows if "deckkit" in r[0] and "不是本仓库" in r[3]]
+
+    if quiet and not missing_required and not missing_optional and not wrong_copy:
         return 0
 
     if not quiet:
@@ -166,7 +181,13 @@ def main():
             print("      pip install -e %s" % SKILL_ROOT)
         print()
         print("一次装齐：bash %s" % os.path.join(REPO, ".cursor", "setup.sh"))
-    elif not quiet:
+
+    if wrong_copy:
+        print("注意：import deckkit 解析到的不是本仓库的副本。")
+        print("  %s" % wrong_copy[0][3].replace("解析到 ", "当前指向："))
+        print("  这意味着你改本仓库的 deckkit.py 不会生效。要切回本仓库：")
+        print("      pip install -e %s" % SKILL_ROOT)
+    elif not missing_optional and not quiet:
         print("全部就绪：生成、质检、渲染预览、HTML 截图都可用。")
     return 0
 

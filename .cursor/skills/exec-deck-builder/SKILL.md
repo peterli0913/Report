@@ -42,19 +42,24 @@ description: 当需要制作汇报 PPT、演示文稿、幻灯片、deck，或�
 目录，`sys.path.insert(0, ".cursor/skills/...")` 换个目录跑就会 ImportError：
 
 ```python
-import sys, pathlib
+import pathlib, sys
 try:
     from deckkit import Deck, Rect, check_overflow      # 装过就直接可用
-except ImportError:                                      # 没装则从仓库里逐级向上找
-    _hits = [b / r / "exec-deck-builder" / "scripts"
-             for b in [pathlib.Path.cwd(), *pathlib.Path.cwd().parents]
+except ImportError:                                      # 没装则去找 skill 目录
+    _bases = [*pathlib.Path(__file__).resolve().parents,  # 先按脚本位置找
+              pathlib.Path.cwd(), *pathlib.Path.cwd().parents]   # 再按工作目录找
+    _hits = [b / r / "exec-deck-builder" / "scripts" for b in _bases
              for r in (".cursor/skills", ".agents/skills", ".claude/skills")]
     sys.path[:0] = [str(p) for p in _hits if p.is_dir()][:1]
     from deckkit import Deck, Rect, check_overflow
 ```
 
+**`__file__` 必须排在 cwd 前面**：脚本可能从任意目录被调用（`cd /tmp && python3
+仓库/build.py`），只按 cwd 找会 ImportError —— 而这正是不该依赖工作目录的原因。
+
 跑过 `bash .cursor/setup.sh` 或 `bash .cursor/skills/install.sh` 之后
-`import deckkit` 在任何目录都能用，上面的兜底分支不会被走到。
+`import deckkit` 在任何目录都能用，上面的兜底分支不会被走到。用
+`python3 scripts/doctor.py` 可以看到它实际解析到哪份 deckkit。
 
 ```python
 deck = Deck(theme="dark", canvas="wide")   # theme: dark/light/slate；canvas: wide/large

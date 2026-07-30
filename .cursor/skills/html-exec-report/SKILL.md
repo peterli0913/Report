@@ -170,9 +170,10 @@ KPI 卡的完整写法：
 `sys.path.insert(0, ".cursor/skills/...")` 换个目录跑就会 ImportError：
 
 ```python
-import sys, pathlib
-_hits = [b / r / "html-exec-report" / "scripts"
-         for b in [pathlib.Path.cwd(), *pathlib.Path.cwd().parents]
+import pathlib, sys
+_bases = [*pathlib.Path(__file__).resolve().parents,      # 先按脚本位置找
+          pathlib.Path.cwd(), *pathlib.Path.cwd().parents]     # 再按工作目录找
+_hits = [b / r / "html-exec-report" / "scripts" for b in _bases
          for r in (".cursor/skills", ".agents/skills", ".claude/skills")]
 sys.path[:0] = [str(p) for p in _hits if p.is_dir()][:1]
 
