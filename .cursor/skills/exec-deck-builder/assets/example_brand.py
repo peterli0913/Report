@@ -6,7 +6,8 @@
   3. 给封面加程序生成的背景图案，并用半透明遮罩保证标题可读
 
 运行：
-    python3 example_brand.py
+    python3 example_brand.py                     # 生成到本脚本同目录
+    python3 example_brand.py /tmp/out.pptx       # 生成到指定路径（不改动仓库文件）
 """
 
 import os
@@ -18,8 +19,8 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "deck-imagery", "scripts"))
 
 from deckkit import DARK, Deck, Rect, check_overflow  # noqa: E402
 
-OUT = os.path.join(HERE, "example_brand.pptx")
-BG = os.path.join(HERE, "cover-bg.png")
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "example_brand.pptx")
+BG = os.path.join(os.path.dirname(os.path.abspath(OUT)) or ".", "cover-bg.png")
 
 # 色值取自 安全专篇1页.pptx 的 ppt/theme/theme2.xml，是现有模板的实际用色。
 # 正式对外材料请向品牌部门确认官方 VI 色值。

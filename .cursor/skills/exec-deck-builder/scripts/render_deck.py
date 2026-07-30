@@ -19,6 +19,7 @@ import subprocess
 import sys
 import glob
 import shutil
+import tempfile
 
 
 def find_soffice():
@@ -43,13 +44,17 @@ def render(pptx, outdir, dpi=110, make_grid=False):
     for old in glob.glob(os.path.join(outdir, "slide-*.png")):
         os.remove(old)
 
-    # 独立 profile，避免与本机 LibreOffice 会话冲突而挂起
-    profile = os.path.join(outdir, ".lo-profile")
-    env = dict(os.environ, HOME=outdir)
-    cmd = [soffice, "--headless", "--norestore", "--invisible",
-           "-env:UserInstallation=file://" + os.path.abspath(profile),
-           "--convert-to", "pdf", "--outdir", outdir, os.path.abspath(pptx)]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
+    # 独立 profile 避免与本机 LibreOffice 会话冲突而挂起。profile 和 HOME 都放到
+    # 临时目录 —— 指到输出目录会在里面留下 .cache / .config 一堆配置文件。
+    work = tempfile.mkdtemp(prefix="deckkit-lo-")
+    try:
+        cmd = [soffice, "--headless", "--norestore", "--invisible",
+               "-env:UserInstallation=file://" + os.path.join(work, "profile"),
+               "--convert-to", "pdf", "--outdir", outdir, os.path.abspath(pptx)]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600,
+                           env=dict(os.environ, HOME=work))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     pdf = os.path.join(outdir, os.path.splitext(os.path.basename(pptx))[0] + ".pdf")
     if not os.path.exists(pdf):
         print("转 PDF 失败：", r.stdout, r.stderr)
@@ -60,7 +65,21 @@ def render(pptx, outdir, dpi=110, make_grid=False):
         return [pdf]
     subprocess.run(["pdftoppm", "-png", "-r", str(dpi), pdf,
                     os.path.join(outdir, "slide")], check=True)
-    pages = sorted(glob.glob(os.path.join(outdir, "slide-*.png")))
+    # pdftoppm 按总页数决定补零位数（9 页以内是 slide-1.png，10 页起是 slide-01.png）。
+    # 统一成固定位数，免得调用方按页数猜文件名。
+    import re
+    found = glob.glob(os.path.join(outdir, "slide-*.png"))
+    width = 3 if len(found) > 99 else 2
+    pages = []
+    for p in found:
+        m = re.search(r"slide-(\d+)\.png$", os.path.basename(p))
+        if not m:
+            continue
+        new = os.path.join(outdir, "slide-%0*d.png" % (width, int(m.group(1))))
+        if os.path.abspath(p) != os.path.abspath(new):
+            os.replace(p, new)
+        pages.append(new)
+    pages.sort()
     print("已渲染 %d 页 -> %s" % (len(pages), outdir))
     for p in pages:
         print("  " + os.path.abspath(p))

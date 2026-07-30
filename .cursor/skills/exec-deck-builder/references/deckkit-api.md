@@ -16,15 +16,17 @@ Deck(theme="dark", canvas="wide", template=None)
 | 参数 | 说明 |
 |---|---|
 | `theme` | `"dark"` / `"light"` / `"slate"`，或一个 `Theme` 实例 |
-| `canvas` | `"wide"` 13.333x7.5（默认）· `"large"` 26.67x15 · `"a4"` 11.69x8.27 · 或 `(宽, 高)` |
+| `canvas` | `"wide"` 13.333x7.5（默认，优先选这个）· `"large"` 26.67x15（贴合公司现有模板）· `"a4"` 11.69x8.27 · 或 `(宽, 高)` |
 | `template` | 传入 `.pptx` 路径则沿用该文件的母版与画布尺寸 |
 
-属性：`deck.theme`、`deck.scale`（设计单位到实际画布的倍数）、`deck.slides`、`deck.prs`（原始 `Presentation`）。
+属性：`deck.theme`、`deck.scale`（设计单位到实际画布的倍数）、`deck.slides`、
+`deck.canvas_w` / `deck.canvas_h`（实际画布英寸）、`deck.prs`（原始 `Presentation`）。
 
 ### 整页方法
 
 ```python
-deck.cover(title, subtitle=None, meta=None, kicker=None, image=None, accent_block=True)
+deck.cover(title, subtitle=None, meta=None, kicker=None, image=None,
+           accent_block=True, scrim=52)
 deck.section(number, title, subtitle=None, agenda=None)
 deck.slide(title=None, eyebrow=None, sub=None, bg=None, rule=False) -> Slide
 deck.closing(title="讨论与决策事项", items=None, meta=None)
@@ -32,7 +34,8 @@ deck.add_page_numbers(skip_first=True, total=True)
 deck.save(path)
 ```
 
-- `cover(image=...)` 会自动在图上压一层底色保证文字可读。
+- `cover(image=..., scrim=52)` 在图上压一层 52% 的半透明底色保证标题可读，图案本身
+  透出来。照片类背景通常要调到 60-70。**不要自己用不透明矩形压图**，那等于没放图。
 - `section(agenda=[...])` 在页脚列出全部章节并高亮当前章，听众才知道讲到哪了。
 - `closing(items=[...])` 写**要对方决策什么**，不要写"谢谢聆听"。
 
@@ -81,7 +84,8 @@ s.kpi_row(items, at=None, cols=None, gap=None, card=True, height=None)
 | `color` | 大数字颜色，突出某一个指标时传 `"accent"` |
 | `note` | 卡片底部补充小字 |
 
-不传 `height` 时卡片高度固定约 1.95"，不会撑满 `body`。
+不传 `height` 时卡片高度**固定约 1.95"**，不会撑满 `body`。切区域时按这个数算，
+否则下方会留出一条空白带。
 
 ### chart —— 原生图表
 
@@ -99,17 +103,26 @@ s.chart(kind, categories, series, at=None, legend=None, data_labels=None,
 
 库已处理好的默认行为，不要重复处理：
 
-- `hbar` / `hstacked` **已反转类别顺序**，第一项显示在顶部。
+- `hbar` / `hstacked` **已反转类别顺序**，第一项显示在顶部；单序列时 `colors` 也
+  跟着反转，所以你传入的颜色顺序始终对应你传入的类别顺序。
 - 单序列自动隐藏图例，多序列自动显示在顶部。
 - 柱/条/饼默认开数据标签，折线/面积默认关（折线开了容易糊）。
 - 堆积图标签强制 `inEnd`（`outEnd` 会让 PowerPoint 报文件损坏），并按每段填充色
-  自动选标签文字色。
+  自动选标签文字色（压在金色段上的白字读不出来）。
 - 各类别合计为 100 的堆积图自动把值轴上限设为 100。
 - 图表区与绘图区透明，融进页面底色。
 
 `number_format` 用 Excel 格式串：`"0"` `"0.0"` `'0"%"'` `"#,##0"` `'0.0"吨"'`。
 
-`colors` 传语义名或 hex 列表覆盖默认序列色，如 `colors=["bad", "warn", "neutral"]`。
+**`colors` 的含义随序列数变化**：
+
+- 多序列时按**序列**取色：`colors[i]` 是第 i 个序列的颜色。
+- 单序列的柱/条形图按**数据点**取色：`colors[j]` 是第 j 根柱子的颜色。这是特意做的
+  —— PowerPoint 的着色单位是序列，只有一个序列时按序列上色会让所有柱子同色，
+  传四个颜色却全渲染成第一个。
+- 折线、面积、雷达图始终按序列取色（按点着色对折线没有意义）。
+
+传语义名或 hex 都可以：`colors=["bad", "warn", "neutral", "hairline"]`。
 
 ### table —— 数据表
 
@@ -122,6 +135,10 @@ s.table(headers, rows, at=None, col_widths=None, align=None, row_h=None,
 - `align=["left", "right", "right", "center"]` —— **数字列一律 `right`**。
 - `cell_colors={(行, 列): "good"}` 给单元格文字染色，行列都从 0 起（不含表头）。
 - 表头固定用 `surface_alt` 底色 + 粗体，已关掉 PowerPoint 自带的花哨样式。
+- **表格不会撑满区域**：自动行高上限是 `0.40`，所以 4 行表最多约 1.9" 高，区域给
+  大了只会在下方留白。要占满就显式传 `row_h` / `header_h`，并按
+  `header_h + row_h × 行数` 反算区域高度。
+- 字号默认 `size_small`（12pt）。表格是这一页的主体内容时传 `size=14`。
 
 ### bullets —— 要点列表
 
@@ -155,10 +172,15 @@ s.progress_bars(items, at=None, size=None, bar_h=0.20, gap=0.30,
 
 `items` 每项 `{label, value, text?, color?}`。`value` 传数值（可超过 100）。
 
-条长按实际最大值缩放并在 `target` 处画虚线参考线 —— 不硬截断到 100，否则 103% 和
-108% 会画成一样长。不传 `color` 时按 `value` 与 `target` 的关系自动取 good/warn/bad。
+条长按 `max(target, 所有 value) × 1.04` 缩放，并在 `target` 处画虚线参考线 —— 不硬
+截断到 100，否则 103% 和 108% 会画成一样长。轨道末端因此总会露出一小段底色，
+这是刻意留的余量，不是画错了。不传 `color` 时按 `value` 与 `target` 的关系自动取
+good / warn / bad。
 
-`align`：`middle` 垂直居中 / `top` 贴顶 / `fill` 撑满区域。
+`align`：`middle` 垂直居中 / `top` 贴顶 / `fill` 撑满区域。开 `show_target` 时上方会
+占用 `0.28"` 放目标标签，虚线和标签跟着条形组走，不会被第一根条压住。
+
+占用高度：`n × (bar_h + gap) − gap`，加上目标标签的 0.28"。
 
 ### timeline —— 里程碑
 
@@ -167,7 +189,7 @@ s.timeline(items, at=None, orient="h", size=None)
 ```
 
 `items` 每项 `{when, title, desc?, status?}`。`status`：`done` 绿 / `doing` 金 / `todo` 灰。
-`orient="v"` 竖向排列，适合放在窄区域。
+`orient="v"` 竖向排列，适合放在窄区域；横竖两种方向都会渲染 `desc`。
 
 ### compare —— 左右对比
 
@@ -196,7 +218,8 @@ s.callout(text, at=None, kind="accent", label=None, size=None, icon=None)
 ```
 
 `kind`：`accent`（结论）/ `good` / `warn` / `bad` / `primary` / `surface`（中性）。
-不传 `at` 时贴在页面底部通栏。**每页最多一个**。
+不传 `at` 时贴在页面底部通栏，占用约 `0.86"` 高（切区域时要给它让出这段 + 间距）。
+**每页最多一个**，全篇 `accent` 用量控制在 3 处以内。
 
 ### image —— 配图
 
@@ -272,11 +295,12 @@ deck = Deck(theme=T, canvas="large")
 
 ### 字号阶梯（设计 pt）
 
-`size_cover_title` 40 · `size_section_title` 34 · `size_title` 23 · `size_kpi` 40 ·
-`size_h` 16 · `size_body` 14 · `size_small` 12 · `size_eyebrow` 11.5 ·
-`size_kpi_label` 11.5 · `size_note` 9.5
+`size_cover_title` 40 · `size_cover_sub` 18 · `size_section_title` 34 ·
+`size_title` 23 · `size_kpi` 40 · `size_h` 16 · `size_body` 14 · `size_small` 12 ·
+`size_eyebrow` 11.5 · `size_kpi_label` 11.5 · `size_note` 9.5
 
-正文 14pt 是投屏下限，再小后排看不清。
+**正文 14pt 是投屏下限**，再小后排看不清。表格默认走 `size_small`（12pt）、脚注
+9.5pt —— 辅助信息可以到 9-12pt，但表格作为主体内容时显式传 `size=14`。
 
 ### 版面
 
@@ -304,6 +328,7 @@ wrapped_lines(text, box_w, size_pt)          # 预测折行数
 text_height(text, box_w, size_pt, ls=1.28)   # 预测文本块高度（英寸）
 fit_size(text, box_w, box_h, size_pt, min_pt=8.0)   # 能装下的最大字号
 check_overflow(path, verbose=True)           # 快速自查，返回问题列表
+audit_theme(theme, min_ratio=4.5)            # 检查主题配色，返回问题列表
 
 apply_font(font, theme, size=None, bold=None, italic=None, color=None,
            font_en=None, font_cn=None)       # 同时写 latin/ea/cs

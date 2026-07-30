@@ -4,18 +4,19 @@
 结构相近的页型改内容，比从零写坐标快得多，也不会漏掉 note/校验步骤。
 
 运行：
-    python3 example_deck.py            # 生成 example_deck.pptx
+    python3 example_deck.py                    # 生成到本脚本同目录
+    python3 example_deck.py /tmp/out.pptx      # 生成到指定路径（不改动仓库文件）
 """
 
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "..", "scripts"))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 
 from deckkit import Deck, Rect, check_overflow  # noqa: E402
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "example_deck.pptx")
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "example_deck.pptx")
 
 deck = Deck(theme="dark", canvas="wide")
 T = deck.theme

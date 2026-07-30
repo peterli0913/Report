@@ -28,9 +28,11 @@ LEVELS = {
     "low_contrast": "error",
     "tiny_text": "error",
     "missing_ea_font": "error",
+    "covered_text": "error",
     "text_overlap": "warn",
     "tight_margin": "warn",
     "too_dense": "warn",
+    "dead_space": "warn",
     "placeholder_left": "error",
 }
 
@@ -64,6 +66,22 @@ def _solid_fill_rgb(obj):
         return None
 
 
+def _is_opaque(shape):
+    """填充是否不透明。半透明遮罩是故意压在图上的，不算遮挡。"""
+    try:
+        spPr = shape._element.spPr
+        solid = spPr.find(qn("a:solidFill"))
+        if solid is None:
+            return False
+        clr = solid.find(qn("a:srgbClr"))
+        if clr is None:
+            return False
+        a = clr.find(qn("a:alpha"))
+        return a is None or int(a.get("val", "100000")) >= 90000
+    except Exception:
+        return True
+
+
 def audit(path, verbose=True):
     prs = Presentation(path)
     pw = prs.slide_width / 914400
@@ -80,8 +98,10 @@ def audit(path, verbose=True):
         # 记录带纯色填充的矩形，用于推断文字实际压在什么颜色上
         panels = []
         text_boxes = []
+        opaque_panels = []   # (z序, x, y, w, h, 名称)：用于检测文字被盖住
+        has_gframe = False   # 是否有表格/图表，用于区分内容页和过渡页
 
-        for sh in slide.shapes:
+        for z, sh in enumerate(slide.shapes):
             if sh.left is None or sh.top is None:
                 continue
             x, y = sh.left / 914400, sh.top / 914400
@@ -89,6 +109,14 @@ def audit(path, verbose=True):
             rgb = _solid_fill_rgb(sh)
             if rgb and w * h > 0.02:
                 panels.append((x, y, w, h, rgb))
+                has_text = sh.has_text_frame and sh.text_frame.text.strip()
+                if _is_opaque(sh) and not has_text:
+                    opaque_panels.append((z, x, y, w, h, sh.name))
+            try:
+                if sh.has_table or sh.has_chart:
+                    has_gframe = True
+            except (AttributeError, ValueError):
+                pass
 
             if x < -0.02 or y < -0.02 or x + w > pw + 0.02 or y + h > ph + 0.02:
                 add(sn, "out_of_bounds",
@@ -195,13 +223,13 @@ def audit(path, verbose=True):
                     ex, ew = x + (w - real) / 2, real
                 else:
                     ew = real
-            text_boxes.append((ex, ey, ew, eh, sh.name, txt))
+            text_boxes.append((ex, ey, ew, eh, sh.name, txt, z))
 
         # 文字块互相重叠（同一页两段文字压在一起，读者会看到糊字）
         for i in range(len(text_boxes)):
             for j in range(i + 1, len(text_boxes)):
-                ax, ay, aw, ah, an, _ = text_boxes[i]
-                bx, by, bw, bh, bn, _ = text_boxes[j]
+                ax, ay, aw, ah, an = text_boxes[i][:5]
+                bx, by, bw, bh, bn = text_boxes[j][:5]
                 ox = min(ax + aw, bx + bw) - max(ax, bx)
                 oy = min(ay + ah, by + bh) - max(ay, by)
                 if ox > 0.06 * scale and oy > 0.06 * scale:
@@ -210,15 +238,66 @@ def audit(path, verbose=True):
                         add(sn, "text_overlap",
                             "%s 与 %s 文本区重叠 %.2f in²" % (an, bn, ov))
 
+        # 文字被后画的不透明色块盖住。这类缺陷在文件里完全合法、质检不看就发现不了，
+        # 但渲染出来那段字就是没了。
+        for tx_, ty_, tw_, th_, tname, ttxt, tz in text_boxes:
+            area = tw_ * th_
+            if area <= 0:
+                continue
+            for pz, px, py, pw_, ph_, pname in opaque_panels:
+                if pz <= tz:
+                    continue            # 先画的色块在文字下面，正常
+                ox = min(tx_ + tw_, px + pw_) - max(tx_, px)
+                oy = min(ty_ + th_, py + ph_) - max(ty_, py)
+                if ox <= 0 or oy <= 0:
+                    continue
+                frac = ox * oy / area
+                if frac > 0.35:
+                    add(sn, "covered_text",
+                        "%s 被后画的 %s 盖住约 %.0f%%: %r"
+                        % (tname, pname, frac * 100, ttxt[:20]))
+                    break
+
         # 密度用字数衡量而不是元素数：复合页型（四象限 + 时间轴）元素天然多，
         # 但只要字少就依然清爽；真正劝退听众的是满页文字。
-        body_chars = sum(len(t.replace(" ", "")) for _, _, _, _, _, t in text_boxes)
+        body_chars = sum(len(t[5].replace(" ", "")) for t in text_boxes)
         if body_chars > 420:
             add(sn, "too_dense", "单页约 %d 字，建议拆页或精简到 300 字以内"
                 % body_chars)
         elif len(slide.shapes) > 80:
             add(sn, "too_dense", "单页 %d 个元素，检查是否可以合并简化"
                 % len(slide.shapes))
+
+        # 内容中间的大片空白。组件默认不撑满给它的区域（表格行高有上限、KPI 卡高度
+        # 固定），区域切大了就会在页面中间留一条空带，看渲染图才发现，很浪费一轮迭代。
+        # 只查内容页 —— 封面、章节过渡页、结尾页的大片留白是设计意图。判据是"有表格
+        # 图表或多个色块"，比按字数猜更准：过渡页只有文字。整页大小的背景块和遮罩
+        # 不算内容色块。
+        content_panels = [p for p in panels if p[2] * p[3] <= 0.75 * pw * ph]
+        if has_gframe or len(content_panels) >= 2:
+            spans = []
+            for sh in slide.shapes:
+                if sh.left is None or sh.top is None:
+                    continue
+                w = (sh.width or 0) / 914400
+                h = (sh.height or 0) / 914400
+                if w * h > 0.75 * pw * ph:
+                    continue          # 整页背景不算内容
+                spans.append((sh.top / 914400 / scale,
+                              (sh.top / 914400 + h) / scale))
+            if spans:
+                spans.sort()
+                merged = [list(spans[0])]
+                for a, b in spans[1:]:
+                    if a <= merged[-1][1] + 0.02:
+                        merged[-1][1] = max(merged[-1][1], b)
+                    else:
+                        merged.append([a, b])
+                for (_, b), (a2, _) in zip(merged, merged[1:]):
+                    if a2 - b > 1.0:
+                        add(sn, "dead_space",
+                            "%.2f\" 到 %.2f\" 之间有 %.2f\" 空白，"
+                            "检查是否某个组件没填满它的区域" % (b, a2, a2 - b))
 
     errors = [i for i in issues if i["level"] == "error"]
     warns = [i for i in issues if i["level"] == "warn"]

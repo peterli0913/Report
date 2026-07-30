@@ -38,7 +38,9 @@ python3 scripts/make_icon.py all icons/ --color F2F5F9
 周期 完成 关注 工艺 合规 审计 检查 厂区 产线 流程
 
 ```python
-from make_icon import draw_icon
+from make_icon import draw_icon, ICONS, ALIASES
+draw_icon(name, path, color="F2F5F9", size=256, stroke=None, padding=0.10)
+
 draw_icon("安全", "icons/safety.png", color="E5B620", size=256)
 s.image("icons/safety.png", at=Rect(1.0, 2.0, 0.5, 0.5), mode="fit")
 ```
@@ -65,6 +67,20 @@ python3 scripts/make_bg.py scrim out.png --image 照片.jpg --opacity 55
 | `dots` | 极轻点阵 | 需要质感但不能抢戏的内容页 |
 | `molecule` | 节点连线网络 | 医药化工类封面，中心已留空放标题 |
 | `scrim` | 给照片压半透明遮罩 | 照片上要放文字时**必须**先做这一步 |
+
+Python 调用的完整签名（`size` 都是 `(宽, 高)` 像素，`opacity` 是 0-100）：
+
+```python
+gradient(path, c_from, c_to, angle=135, size=(1920, 1080))
+glow(path, base, accent, size=..., cx=0.72, cy=0.28, radius=0.85, opacity=55)
+mesh(path, base, line, size=..., spacing=90, opacity=40, width=1)
+dots(path, base, accent, size=..., spacing=46, radius=3, opacity=62)
+molecule(path, base, accent, size=..., nodes=26, opacity=42, seed=7, link_dist=0.30)
+scrim(path, image, base="000000", opacity=55, size=None)
+```
+
+颜色参数传 6 位 hex（带不带 `#` 都行）。`molecule` 的节点用分层采样铺满四周、
+中间留空，所以标题压在中央不会被线条穿过；换 `seed` 得到不同图案。
 
 ### 3. AI 生成插图（用于抽象概念，不用于表示实物）
 

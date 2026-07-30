@@ -4,10 +4,14 @@
 需要做新汇报时，从这里挑结构相近的页型改内容。
 
 运行：
-    python3 build_example.py            # 生成 example.html
+    python3 build_example.py                     # 生成到本脚本同目录
+    python3 build_example.py /tmp/out.html       # 生成到指定路径
+
+注意：输出目录里需要有 deck.css 和 deck.js（本脚本会自动复制过去）。
 """
 
 import os
+import shutil
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -287,7 +291,14 @@ HTML = """<!doctype html>
 </html>
 """ % "\n".join(p.strip() for p in P)
 
-out = os.path.join(HERE, "example.html")
+out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "example.html")
+outdir = os.path.dirname(os.path.abspath(out)) or "."
+os.makedirs(outdir, exist_ok=True)
 with open(out, "w", encoding="utf-8") as f:
     f.write(HTML)
+# css / js 必须和 html 同目录，否则打开是一片没样式的纯文本
+for asset in ("deck.css", "deck.js"):
+    dst = os.path.join(outdir, asset)
+    if os.path.abspath(os.path.join(HERE, asset)) != os.path.abspath(dst):
+        shutil.copy2(os.path.join(HERE, asset), dst)
 print("已生成：%s（%d 页）" % (out, len(P)))

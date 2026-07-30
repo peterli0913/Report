@@ -71,15 +71,17 @@ class Theme:
     # 语义色（达成/关注/风险）—— 这一组是"填充色"，用于色块、图表、进度条。
     # 亮度要么足够暗（配白字）要么足够亮（配深字），落在中间地带的颜色两种字色都压不住。
     good: str = "27A567"
-    warn: str = "E5A32B"
+    # warn 要和 accent 拉开色相距离：金色的 accent 表示"重点"、橙色的 warn 表示
+    # "需关注"，两者色值太近时读者分不出这一页是结论还是警示。
+    warn: str = "E5822B"
     bad: str = "C93B33"
     neutral: str = "7E93AD"
 
     # 语义色的"文字版"。填充够醒目和文字够可读是两个不同要求：饱和的绿做色块很好，
     # 但当成 12pt 小字压在深底上就达不到 WCAG 4.5:1。所以两组分开定义。
     good_text: str = "2DBF77"
-    warn_text: str = "E5A32B"
-    bad_text: str = "FF7A6B"
+    warn_text: str = "EE9A4A"
+    bad_text: str = "FF8F82"
     neutral_text: str = "A0B0C4"
     accent_text: str = "E5B620"
     primary_text: str = "6FB0EA"
@@ -221,9 +223,9 @@ LIGHT = Theme(
     hairline="D2DDEA",
     ink="14243C", ink_muted="576C89", ink_on_accent="14243C",
     primary="1E6FBF", secondary="2AA9DB", accent="C8880C",
-    good="1A7F50", warn="C2851A", bad="C2372F", neutral="8496AC",
+    good="1A7F50", warn="A34E0F", bad="C2372F", neutral="8496AC",
     # 浅底上文字要往暗走（深底是往亮走），所以整组与 DARK 相反
-    good_text="1A7A4D", warn_text="8F6213", bad_text="B8332B",
+    good_text="1A7A4D", warn_text="A34E0F", bad_text="B8332B",
     neutral_text="596C84", accent_text="906209", primary_text="1D6CBA",
     secondary_text="197396",
     series=("1E6FBF", "C8880C", "2AA9DB", "1A7F50", "7B5CB8", "C2372F"),
@@ -239,7 +241,7 @@ SLATE = Theme(
     hairline="3D4854",
     ink="F0F3F6", ink_muted="A3AEBB",
     primary="4C8DBF", secondary="6BB8C9", accent="E2A93B",
-    good_text="2DBD76", bad_text="FF7A6B", neutral_text="97A8BD",
+    good_text="2DBD76", bad_text="FF8F82", neutral_text="97A8BD",
     accent_text="E2A93B", primary_text="7CACD0", secondary_text="6BB8C9",
     series=("4C8DBF", "E2A93B", "6BB8C9", "5FA97F", "A78BC4", "CC6155"),
 )
@@ -1006,22 +1008,27 @@ class Slide:
         track_w = at.right - val_w - 0.12 - track_x
         row_h = bar_h + gap
         n = len(items)
+        # 目标标签占据条形组上方一行，先把这块高度预留出来
+        label_h = 0.28 if show_target else 0.0
         if align == "fill" and n > 1:
-            step = at.h / n
-            y = at.y + (step - bar_h) / 2
+            step = (at.h - label_h) / n
+            y = at.y + label_h + (step - bar_h) / 2
         else:
             step = row_h
             span = row_h * n - gap
-            y = at.y + (max(0.0, at.h - span) / 2 if align == "middle" else 0.0)
+            slack = max(0.0, at.h - label_h - span)
+            y = at.y + label_h + (slack / 2 if align == "middle" else 0.0)
 
         if show_target:
+            # 虚线和标签跟着条形组走，不按区域顶部定位 —— 否则贴顶排列时标签会被
+            # 第一根条形压住，居中排列时又会飘在条形上方一大截。
             tx = track_x + track_w * min(target, vmax) / vmax
-            top = min(y - 0.10, at.y)
-            self.line(tx, top + 0.22, tx, y + step * (n - 1) + bar_h + 0.10,
-                      "ink_muted", 1.0, dash="DASH")
-            self.text(Rect(tx - 0.6, top - 0.04, 1.2, 0.24),
+            bars_bottom = y + step * (n - 1) + bar_h
+            self.line(tx, y - 0.10, tx, bars_bottom + 0.10, "ink_muted", 1.0,
+                      dash="DASH")
+            self.text(Rect(tx - 0.6, y - label_h - 0.04, 1.2, 0.26),
                       "目标 %g%%" % target, size=theme.size_note,
-                      color="ink_muted", align="center")
+                      color="ink_muted", align="center", anchor="bottom")
         for it, v in zip(items, vals):
             c = it.get("color") or ("good" if v >= target else
                                     "warn" if v >= target * 0.9 else "bad")
@@ -1085,9 +1092,22 @@ class Slide:
                           it.get("when", ""), size=theme.size_small, bold=True,
                           color=c, anchor="middle")
                 bx = tx + 1.02
-                self.text(Rect(bx, cy - rh / 2 + 0.02, at.right - bx, rh - 0.04),
-                          it.get("title", ""), size=size, bold=True,
-                          anchor="middle")
+                bw = at.right - bx
+                desc = it.get("desc")
+                if desc:
+                    # 竖排也要渲染 desc，否则传了参数却看不到，是静默丢数据
+                    th = text_height(it.get("title", ""), bw, size, 1.24)
+                    dh = text_height(desc, bw, theme.size_small, 1.34)
+                    top = cy - (th + 0.05 + dh) / 2
+                    self.text(Rect(bx, top, bw, th), it.get("title", ""),
+                              size=size, bold=True, line_spacing=1.24)
+                    self.text(Rect(bx, top + th + 0.05, bw, dh), desc,
+                              size=theme.size_small, color="ink_muted",
+                              line_spacing=1.34)
+                else:
+                    self.text(Rect(bx, cy - rh / 2 + 0.02, bw, rh - 0.04),
+                              it.get("title", ""), size=size, bold=True,
+                              anchor="middle")
         return at
 
     def compare(self, left, right, at: Rect | None = None, gap=None):
@@ -1244,9 +1264,13 @@ class Slide:
 
         # 横向条形图 PowerPoint 从下往上排，直接传入会让第一项落到最底部。
         # 阅读习惯是"最重要/最大的在最上面"，所以先把顺序倒过来。
+        single = len(series) == 1
         if kind in ("hbar", "hstacked", "hstacked100"):
             categories = list(categories)[::-1]
             series = [(nm, list(v)[::-1]) for nm, v in series]
+            # 单序列时 colors 是按数据点取的，要跟着类别一起反转
+            if colors and single:
+                colors = list(colors)[::-1]
 
         cd = CategoryChartData()
         cd.categories = list(categories)
@@ -1287,16 +1311,31 @@ class Slide:
                 pt.format.line.color.rgb = RGBColor.from_string(theme.color(theme.bg))
                 pt.format.line.width = self._p(1.2)
         else:
+            bars = kind not in ("line", "line_markers", "radar", "area")
+            # 单序列柱/条形图：colors 按数据点取，让每根柱子有自己的颜色。
+            # PowerPoint 的着色单位是"序列"，只有一个序列时按序列上色会让所有柱子
+            # 同色 —— 传了四个颜色却全渲染成第一个，是静默错误，很难看出来。
+            per_point = bars and single and colors is not None
             for i, s in enumerate(ch.series):
+                if per_point:
+                    for j, pt in enumerate(s.points):
+                        pt.format.fill.solid()
+                        pt.format.fill.fore_color.rgb = RGBColor.from_string(
+                            pal[j % len(pal)])
+                        pt.format.line.fill.background()
+                    continue
                 col = RGBColor.from_string(pal[i % len(pal)])
-                if kind in ("line", "line_markers", "radar"):
-                    s.format.line.color.rgb = col
-                    s.format.line.width = self._p(2.4)
-                    s.smooth = smooth
-                else:
+                if bars:
                     s.format.fill.solid()
                     s.format.fill.fore_color.rgb = col
                     s.format.line.fill.background()
+                elif kind == "area":
+                    s.format.fill.solid()
+                    s.format.fill.fore_color.rgb = col
+                else:
+                    s.format.line.color.rgb = col
+                    s.format.line.width = self._p(2.4)
+                    s.smooth = smooth
 
         # 数据标签：柱/条/饼默认开，折线默认关（否则容易糊成一片）
         if data_labels is None:
@@ -1644,7 +1683,62 @@ def check_overflow(path, verbose=True):
     return issues
 
 
+def audit_theme(theme: Theme, min_ratio: float = 4.5) -> list:
+    """检查一个主题的所有颜色组合是否达标，返回问题列表。
+
+    改动主题色值后跑一遍。两类问题：
+      - 语义文字色在某档底色上对比度不足（用 with_readable_text() 修）
+      - 填充色落在"白字深字都压不住"的中间亮度带（只能换色值）
+      - 两个语义色太接近，读者分不出含义（例如 warn 和 accent 都是金黄）
+    """
+    issues = []
+    bgs = [("bg", theme.bg), ("bg_alt", theme.bg_alt),
+           ("surface", theme.surface), ("surface_alt", theme.surface_alt)]
+
+    def ratio(fg, bg):
+        a, b = theme.luminance(fg), theme.luminance(bg)
+        hi, lo = max(a, b), min(a, b)
+        return (hi + 0.05) / (lo + 0.05)
+
+    texts = ["ink", "ink_muted", "good_text", "warn_text", "bad_text",
+             "neutral_text", "accent_text"]
+    for tn in texts:
+        tc = theme.color(getattr(theme, tn))
+        for bn, bc in bgs:
+            r = ratio(tc, bc)
+            if r < min_ratio:
+                issues.append("文字色 %s(#%s) 在 %s(#%s) 上对比度 %.2f:1，需 %.1f"
+                              % (tn, tc, bn, bc, r, min_ratio))
+
+    for fn in ("good", "warn", "bad", "neutral", "primary", "secondary", "accent"):
+        fc = theme.color(getattr(theme, fn))
+        best = max(ratio("FFFFFF", fc), ratio(theme.ink_on_accent, fc))
+        if best < min_ratio:
+            issues.append("填充色 %s(#%s) 白字仅 %.2f:1、深字仅 %.2f:1，两种都压不住"
+                          % (fn, fc, ratio("FFFFFF", fc),
+                             ratio(theme.ink_on_accent, fc)))
+
+    # 语义色之间要能区分。亮度接近且色相接近的两个语义色会让读者误读页面性质。
+    import colorsys
+
+    def hue(c):
+        h = theme.color(c)
+        r, g, b = [int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4)]
+        return colorsys.rgb_to_hls(r, g, b)[0]
+
+    pairs = [("accent", "warn"), ("good", "secondary"), ("bad", "warn")]
+    for a, b in pairs:
+        ca, cb = theme.color(getattr(theme, a)), theme.color(getattr(theme, b))
+        dh = abs(hue(ca) - hue(cb))
+        dh = min(dh, 1 - dh)
+        dl = abs(theme.luminance(ca) - theme.luminance(cb))
+        if dh < 0.035 and dl < 0.10:
+            issues.append("语义色 %s(#%s) 与 %s(#%s) 太接近，读者分不出含义"
+                          % (a, ca, b, cb))
+    return issues
+
+
 __all__ = ["Deck", "Slide", "Theme", "Rect", "THEMES", "DARK", "LIGHT", "SLATE",
            "CANVAS", "BASE_W", "BASE_H", "apply_font", "add_shadow",
-           "clear_shadow", "text_width", "text_height", "wrapped_lines",
-           "fit_size", "check_overflow"]
+           "clear_shadow", "set_fill_alpha", "text_width", "text_height",
+           "wrapped_lines", "fit_size", "check_overflow", "audit_theme"]
