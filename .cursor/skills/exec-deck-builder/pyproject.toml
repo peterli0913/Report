@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# 装成可编辑模块后，任何目录下 import deckkit 都能用，不再依赖当前工作目录 ——
+# Cursor 文档没有承诺 skill 脚本执行时的 cwd，所以不能靠相对路径找模块。
+#   pip install -e .cursor/skills/exec-deck-builder
+name = "asymchem-deckkit"
+version = "1.0.0"
+description = "面向中文高层汇报的 PPT 生成组件库"
+requires-python = ">=3.9"
+dependencies = ["python-pptx>=0.6.21", "Pillow>=9.0"]
+
+[project.scripts]
+deck-check = "deckkit_cli:check"
+deck-render = "deckkit_cli:render"
+deck-doctor = "deckkit_cli:doctor"
+
+[tool.setuptools]
+package-dir = { "" = "scripts" }
+py-modules = ["deckkit", "deckkit_cli"]

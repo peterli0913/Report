@@ -1,0 +1,23 @@
+# 渲染预览与质检产物（可随时用 render_deck.py / shoot.py 重新生成）
+preview/
+# 生成脚本自动重建的图标素材（pptx 里已内嵌，不需要入库）
+安全专篇/icons/
+selftest-out/
+*-preview/
+.lo-profile/
+slide-*.png
+page-*.png
+overview.png
+# 生成的汇报文件默认不入库，避免仓库被二进制撑大
+/output/
+/汇报输出/
+
+__pycache__/
+*.pyc
+# pip install -e 生成的元数据
+*.egg-info/
+.eggs/
+build/
+dist/
+.DS_Store
+~$*.pptx
