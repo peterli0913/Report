@@ -105,14 +105,15 @@ description: 当需要为面向管理层/高层的汇报材料做视觉设计决
 要严格贴合模板原色：
 
 ```python
-from deckkit import DARK
-T = DARK.variant(bg="#003669", bg_alt="#002A52", primary="#3263A7",
-                 secondary="#2AA9DB", accent="#E5B620")
+from deckkit import DARK, Deck
+T = DARK.variant(bg="003669", bg_alt="002A52", surface="0B4880",
+                 surface_alt="3263A7", ink="E7E6E6", primary="4472C4",
+                 secondary="2AA9DB", accent="E5B620").with_readable_text()
 deck = Deck(theme=T, canvas="large")   # large = 26.67x15，与现有模板同尺寸
 ```
 
-改完主题色后**必须重跑 `check_deck.py`**：换了底色，原本达标的文字对比度可能就
-不达标了。
+`.with_readable_text()` 按新底色重算全部语义文字色 —— **不能省**。底色一变，原本
+达标的绿/红/灰就可能掉到 4.5:1 以下。改完再跑一次 `check_deck.py` 确认。
 
 ## 中文排版
 

@@ -166,6 +166,53 @@ class Theme:
     def variant(self, **kw) -> "Theme":
         return replace(self, **kw)
 
+    def with_readable_text(self, min_ratio: float = 4.6) -> "Theme":
+        """按当前底色重算全部语义文字色，保证在任何一档底色上都达到 min_ratio。
+
+        改过 bg / surface（例如换成企业 VI 色）之后调一次 —— 底色一变，原来达标的
+        文字色就可能不达标了，而这类问题在屏幕上不明显、投屏时却直接消失。
+
+            T = DARK.variant(bg="003669", surface="0B4880").with_readable_text()
+        """
+        import colorsys
+
+        bgs = [self.bg, self.bg_alt, self.surface, self.surface_alt]
+        lums = [self.luminance(b) for b in bgs]
+        # 深底以最亮的一档为约束（文字要够亮），浅底以最暗的一档为约束
+        if sum(lums) / len(lums) < 0.4:
+            target = min_ratio * (max(lums) + 0.05) - 0.05
+            want_brighter = True
+        else:
+            target = (min(lums) + 0.05) / min_ratio - 0.05
+            want_brighter = False
+
+        def tune(hexc):
+            h = self.color(hexc)
+            r, g, b = [int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4)]
+            hh, _, ss = colorsys.rgb_to_hls(r, g, b)
+            best = None
+            for i in range(2, 99):
+                rr, gg, bb = colorsys.hls_to_rgb(hh, i / 100.0, ss)
+                cand = "%02X%02X%02X" % (round(rr * 255), round(gg * 255),
+                                         round(bb * 255))
+                lc = self.luminance(cand)
+                ok = lc >= target if want_brighter else lc <= target
+                if ok:
+                    # 取刚好达标的那一档，避免颜色被推到发白或发黑
+                    return cand
+                best = cand
+            return best or h
+
+        fixed = {}
+        for f in ("good_text", "warn_text", "bad_text", "neutral_text",
+                  "accent_text", "primary_text", "secondary_text", "ink_muted"):
+            cur = self.color(getattr(self, f))
+            lc = self.luminance(cur)
+            if (lc >= target) if want_brighter else (lc <= target):
+                continue                      # 已经达标就别动，保留原有色感
+            fixed[f] = tune(cur)
+        return replace(self, **fixed) if fixed else self
+
 
 # 浅色主题：打印、投屏亮环境、以及需要贴合既有白底模板时使用
 LIGHT = Theme(
@@ -430,6 +477,29 @@ def add_shadow(shape, blur=10.0, dist=4.0, direction=5400000,
     return shape
 
 
+def set_fill_alpha(shape, transparency: float):
+    """给纯色填充加透明度（0=不透明，100=全透明）。
+
+    python-pptx 没有暴露填充透明度，但压在背景图上的遮罩必须半透明 ——
+    不透明的遮罩会把图整张盖住，等于没放图。
+    """
+    if not transparency:
+        return shape
+    spPr = shape._element.spPr
+    solid = spPr.find(qn("a:solidFill"))
+    if solid is None:
+        return shape
+    clr = solid.find(qn("a:srgbClr"))
+    if clr is None:
+        return shape
+    for old in clr.findall(qn("a:alpha")):
+        clr.remove(old)
+    a = _el("a:alpha")
+    a.set("val", str(int(max(0.0, min(100.0, 100 - transparency)) * 1000)))
+    clr.append(a)
+    return shape
+
+
 def clear_shadow(shape):
     """去掉形状阴影（python-pptx 默认从主题继承，卡片叠卡片时要关掉）。"""
     spPr = shape._element.spPr
@@ -496,8 +566,12 @@ class Slide:
 
     # ---- 基础图形 ----
     def rect(self, at: Rect, fill=None, line=None, line_w=1.0,
-             radius: float | None = None, shadow=False, shape=None):
-        """画一个矩形/圆角矩形。radius 为圆角占短边比例，None 用主题值。"""
+             radius: float | None = None, shadow=False, shape=None,
+             transparency: float = 0):
+        """画一个矩形/圆角矩形。radius 为圆角占短边比例，None 用主题值。
+
+        transparency 0-100，用于压在背景图上的半透明遮罩。
+        """
         if shape is None:
             shape = MSO_SHAPE.ROUNDED_RECTANGLE if (radius is None or radius > 0) \
                 else MSO_SHAPE.RECTANGLE
@@ -514,6 +588,7 @@ class Slide:
         else:
             sh.fill.solid()
             sh.fill.fore_color.rgb = RGBColor.from_string(self.theme.color(fill))
+            set_fill_alpha(sh, transparency)
         if line is None:
             sh.line.fill.background()
         else:
@@ -1391,14 +1466,18 @@ class Deck:
         return s
 
     def cover(self, title, subtitle=None, meta=None, kicker=None,
-              image=None, accent_block=True):
-        """封面。深色底 + 大标题 + 一条强调色块。"""
+              image=None, accent_block=True, scrim=52):
+        """封面。深色底 + 大标题 + 一条强调色块。
+
+        传 image 时会压一层 scrim% 的半透明底色，保证标题可读；图案本身透出来。
+        照片类背景可能需要更高的 scrim（60-70）。
+        """
         t = self.theme
         s = Slide(self, self.prs.slides.add_slide(self._blank), t.bg_alt)
         self.slides.append(s)
         if image:
             s.bg_image(image)
-            s.rect(s.page, fill=t.bg_alt, radius=0)  # 压一层底色保证文字可读
+            s.rect(s.page, fill=t.bg_alt, radius=0, transparency=100 - scrim)
         m = t.margin + 0.24
         box = Rect(m, 0, BASE_W - 2 * m, BASE_H)
         y = BASE_H * 0.30

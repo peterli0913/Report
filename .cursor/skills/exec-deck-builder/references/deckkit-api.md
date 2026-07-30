@@ -210,7 +210,8 @@ s.image(path, at=None, mode="cover", radius=None, caption=None)
 ### 基础图元
 
 ```python
-s.rect(at, fill=None, line=None, line_w=1.0, radius=None, shadow=False, shape=None)
+s.rect(at, fill=None, line=None, line_w=1.0, radius=None, shadow=False,
+       shape=None, transparency=0)
 s.line(x1, y1, x2, y2, color="hairline", width=1.0, dash=None)
 s.text(at, content, size=None, bold=False, color="ink", align="left", anchor="top",
        line_spacing=1.28, italic=False, font_en=None, font_cn=None, fit=False,
@@ -242,6 +243,16 @@ s.text(area, [("1,284", {"size": 40, "bold": True, "color": "accent"}),
 ```python
 Theme(name=..., bg=..., ink=..., primary=..., size_body=14, margin=0.62, ...)
 theme.variant(accent="FF6B00", font_cn="思源黑体")   # 基于现有主题改几个字段
+theme.with_readable_text()                          # 改过底色后重算语义文字色
+```
+
+**改过 `bg` / `surface` 之后一定要接 `.with_readable_text()`**：底色一变，原本达标的
+文字色就可能掉到 4.5:1 以下，而这类问题在显示器上不明显、投屏时却直接消失。
+
+```python
+T = DARK.variant(bg="003669", surface="0B4880",
+                 accent="E5B620").with_readable_text()
+deck = Deck(theme=T, canvas="large")
 ```
 
 ### 颜色语义
@@ -274,11 +285,13 @@ theme.variant(accent="FF6B00", font_cn="思源黑体")   # 基于现有主题改
 ### 辅助方法
 
 ```python
-theme.color(key)        # 语义名或 hex -> hex
-theme.text_color(key)   # 语义名 -> 文字版 hex
-theme.luminance(key)    # WCAG 相对亮度 0-1
-theme.ink_on(bg)        # 返回压在 bg 上对比度更高的文字色
-theme.block_ink(fill)   # 返回 (主文字色, 次文字色)
+theme.color(key)             # 语义名或 hex -> hex
+theme.text_color(key)        # 语义名 -> 文字版 hex
+theme.luminance(key)         # WCAG 相对亮度 0-1
+theme.ink_on(bg)             # 返回压在 bg 上对比度更高的文字色
+theme.block_ink(fill)        # 返回 (主文字色, 次文字色)
+theme.variant(**kw)          # 派生新主题
+theme.with_readable_text()   # 按当前底色重算全部语义文字色
 ```
 
 ---
@@ -296,7 +309,11 @@ apply_font(font, theme, size=None, bold=None, italic=None, color=None,
            font_en=None, font_cn=None)       # 同时写 latin/ea/cs
 add_shadow(shape, blur=10.0, dist=4.0, direction=5400000, color="000000", alpha=22)
 clear_shadow(shape)
+set_fill_alpha(shape, transparency)          # 给纯色填充加透明度（0-100）
 ```
+
+`set_fill_alpha` 用于压在背景图上的遮罩。`s.rect(..., transparency=45)` 已经调它，
+只有手写形状时才需要直接用 —— 不透明的遮罩会把背景图整张盖住，等于没放图。
 
 排版前先量、后放，是避免文字被裁的根本办法：
 

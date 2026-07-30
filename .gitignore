@@ -1,10 +1,14 @@
-# 渲染预览与质检产物（可随时用 render_deck.py 重新生成）
+# 渲染预览与质检产物（可随时用 render_deck.py / shoot.py 重新生成）
 preview/
 selftest-out/
 *-preview/
 .lo-profile/
 slide-*.png
+page-*.png
 overview.png
+
+# 示例脚本生成的中间素材（跑一次脚本就会重新生成）
+.cursor/skills/exec-deck-builder/assets/cover-bg.png
 
 # 生成的汇报文件默认不入库，避免仓库被二进制撑大
 /output/

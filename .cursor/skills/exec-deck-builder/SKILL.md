@@ -97,6 +97,22 @@ area.pad(top=0.4)                   # 只缩某一边
 
 完整参数见 `references/deckkit-api.md`。
 
+## 换成企业品牌色
+
+```python
+from deckkit import DARK, Deck
+
+T = DARK.variant(bg="003669", bg_alt="002A52", surface="0B4880",
+                 primary="3263A7", accent="E5B620").with_readable_text()
+deck = Deck(theme=T, canvas="large")     # large = 26.67x15，与现有模板同尺寸
+```
+
+**改过底色一定要接 `.with_readable_text()`**：底色一变，原本达标的语义文字色
+（绿/红/灰）就可能掉到 4.5:1 以下。这类问题在显示器上不明显，投屏时直接消失。
+改完还要重跑 `check_deck.py` 确认。
+
+现有模板的实际用色见 `exec-visual-system` skill。
+
 ## 图表选型
 
 | 要表达 | 用 | 不要用 |
