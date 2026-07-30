@@ -23,12 +23,12 @@ description: 当需要做网页形式的汇报材料时使用 —— HTML 汇报
 
 ## 快速开始
 
-从示例改，不要从零写：
+从示例改，不要从零写。**输出到工作目录，不要写进 skill 目录**：
 
 ```bash
-cd .cursor/skills/html-exec-report
-python3 assets/build_example.py          # 生成 assets/example.html
-python3 scripts/shoot.py assets/example.html preview/   # 逐页截图看效果
+S=.cursor/skills/html-exec-report
+python3 $S/assets/build_example.py 汇报/example.html   # 会一并复制 deck.css / deck.js
+python3 $S/scripts/shoot.py 汇报/example.html 汇报/preview/   # 逐页截图看效果
 ```
 
 `assets/example.html` 是一份完整的 10 页汇报，涵盖全部页型。做新汇报时复制它，
@@ -101,8 +101,28 @@ python3 scripts/shoot.py assets/example.html preview/   # 逐页截图看效果
 | `.grow` | 占满剩余空间（`flex:1; min-height:0`） |
 | `.card-grid.cols-2/3/4` | 等宽网格 |
 
+### 高度预算
+
 **图表容器要给明确高度**（`style="flex:0 0 380px"`），因为 SVG 用
-`preserveAspectRatio` 保持比例，容器高度不确定时会留白。
+`preserveAspectRatio` 保持比例：容器比 viewBox 更"高瘦"时，图表会缩到能完整放入的
+尺寸并居中，上下留白。`align-items:center` 只是把留白从底部挪到上下两侧，不消除留白。
+
+一页内容区的可用高度这样算：
+
+```
+720（页高）− 120（上下 padding 各 60）− 88（slide-head 一行标题）
+            − 24 × 区块间隔数 − 其他区块高度 = 图表可用高度
+```
+
+拿到可用高度后，让 `svg_chart` 的 `width` / `height` 与容器长宽比一致，图表就能填满：
+
+```python
+# 容器 1160 x 380 → viewBox 也给 1160 x 380
+bar(cats, series, width=1160, height=380)
+```
+
+常用高度参考：`.kpi-row` 168px · `.callout` 约 66px · `.table` 每行 41px + 表头 45px ·
+`.timeline` 约 150px。
 
 ## 组件速查
 
@@ -111,7 +131,7 @@ python3 scripts/shoot.py assets/example.html preview/   # 逐页截图看效果
 | 封面 | `.slide.slide-cover` | 内含 `.kicker` `h1` `.sub` `.meta` |
 | 章节页 | `.slide.slide-section` | 内含 `.num` `h2` `.sub` `.agenda` |
 | 页头 | `.slide-head` > `.eyebrow` + `.slide-title` | 标题写结论，不写栏目名 |
-| KPI 卡 | `.kpi-row` > `.kpi` > `.v`/`.u`/`.l`/`.d` | 加 `.hl` 让数字用强调色 |
+| KPI 卡 | `.kpi-row` > `.kpi` > `.v`（含 `.u`）+ `.l` + `.d` + `.n` | **`.u` 必须嵌在 `.v` 里面**（字号是 `0.42em`）；`.n` 是卡片底部的补充小字；卡片加 `.hl` 让数字用强调色 |
 | 卡片 | `.card` / `.card-grid.cols-3` | `.card-title` + `.card-desc` |
 | 图标卡 | `.card.icon-card` > `.icon-badge` | badge 加 `.bg-good` 等着色 |
 | 要点 | `ul.bullets` > `li` > `.h` + `.d` | 加 `.num` 变编号列表 |
@@ -123,8 +143,20 @@ python3 scripts/shoot.py assets/example.html preview/   # 逐页截图看效果
 | 结论条 | `.callout`（`.good`/`.warn`/`.bad`/`.plain`） | 每页最多一个 |
 | 页脚 | `.note` + `.page-no` | 有数字的页必须写 note |
 
-语义色工具类：文字用 `.t-good` `.t-warn` `.t-bad` `.t-neutral` `.t-accent` `.t-muted`；
-底色用 `.bg-good` `.bg-warn` `.bg-bad` `.bg-neutral` `.bg-primary` `.bg-accent`。
+KPI 卡的完整写法：
+
+```html
+<div class="kpi hl">
+  <div class="v">97.6<span class="u">%</span></div>
+  <div class="l">批次一次通过率</div>
+  <div class="d t-good">▲ 同比 +2.4pp</div>
+  <div class="n">目标 ≥97%，已达成</div>
+</div>
+```
+
+语义色工具类：文字用 `.t-good` `.t-warn` `.t-bad` `.t-neutral` `.t-accent` `.t-muted`
+`.t-ink`（把灰块里的某段文字提回正常墨色）；底色用 `.bg-good` `.bg-warn` `.bg-bad`
+`.bg-neutral` `.bg-primary` `.bg-accent`。
 
 **文字色和底色是两组不同的值**（`--good` 和 `--good-text`）：饱和的绿做色块很好，
 当成 16px 小字压在深底上就达不到 4.5:1 对比度。用工具类就不会用错。
@@ -150,7 +182,15 @@ svg = legend(series) + bar(["1月", "2月", "3月"], series, height=380, unit=" 
 | `stacked(categories, series, horizontal=True)` | 堆积条形，看构成 |
 | `donut(labels, values, ...)` | 环形，只用于单一构成且不超过 5 段 |
 | `legend(series)` | 图例，多序列时必须给 |
-| `progress(items, target)` | 达成率条（输出 HTML 不是 SVG） |
+| `progress(items, target, min_scale=None)` | 达成率条（输出 HTML 不是 SVG） |
+
+两个容易漏的参数：
+
+- **`line(..., target=97)`** 画横向目标参考线，`show_values=True` 标出数据点数值，
+  `unit` 加在纵轴刻度上（折线默认不标数据点，标了容易糊）。
+- **`progress(..., min_scale=90)`**：值域集中时必须传。四个指标都在 94-98、目标 97，
+  从 0 起算的话四根条长度差不到 5%，肉眼分不出来。抬高起点差异才读得出来，
+  组件会自动在下方注明"横轴起点 90"。
 
 颜色默认取 CSS 变量（`var(--primary)` 等），所以切换浅色主题时图表自动跟着变。
 也可以传语义名：`colors=["bad", "warn", "neutral"]`。
@@ -197,10 +237,17 @@ svg = legend(series) + bar(["1月", "2月", "3月"], series, height=380, unit=" 
 
 ## 常见错误
 
+- **不要在中文句子中间断行。** HTML 会把源码里的换行渲染成一个空格，英文里这是
+  正确行为，中文里就变成句子中间凭空多个空格（"隐患整改 责任主体"）。中文文本
+  写在一行里，源码超宽也不要折。
 - **给图表容器用 `flex:1` 但不给高度**：SVG 保持比例居中，容器过高就会大片留白。
-  给明确高度（`flex:0 0 380px`）或用 `align-items:center` 居中。
+  见下面的「高度预算」。
 - **忘了 `min-height:0`**：flex 子项默认不能收缩到内容以下，嵌套 flex 时内容会
   溢出容器。`.grow` 已经带了这个属性，自己写 `flex:1` 时要记得加。
+- **`.icon-card` 的内容是垂直居中的。** 放进会被拉高的容器（`.grow`）时上下会各留
+  一块空白，需要固定高度的场合用普通 `.card`。
+- **在 `.card-desc`（灰字）里用 `<b>` 做强调等于没强调。** 灰底上的粗灰字看不出来，
+  改用 `.t-ink` 把那段文字提回正常墨色，或者用 `.t-accent`。
 - **引 CDN 上的字体或图表库**：内网打不开，演示现场变白屏。所有资源都要本地化。
 - **直接把 css/js 和 html 分开发给别人**：附件里只有 html，样式全丢。
   用 `inline.py` 打包。

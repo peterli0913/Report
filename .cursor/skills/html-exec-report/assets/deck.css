@@ -357,6 +357,8 @@ html, body {
 
 /* ---------- 图标卡 ---------- */
 
+/* 注意：内容会垂直居中。放在会被拉高的容器里（.grow）时上下会各留一块空白，
+   需要固定高度的场合改用普通 .card。 */
 .icon-card { display: flex; flex-direction: column; justify-content: center; }
 .icon-badge {
   width: 44px;
@@ -401,11 +403,22 @@ html, body {
 .pr .track {
   height: 14px;
   border-radius: 7px;
-  background: var(--surface-alt);
-  overflow: hidden;
+  /* 空槽要比卡片底色更暗。用 --surface-alt 会让未填充那段读起来像另一个数据段，
+     条没走满时看着像"一半绿一半蓝"的堆积条。 */
+  background: var(--bg-alt);
   position: relative;
 }
+[data-theme="light"] .pr .track { background: var(--surface-alt); }
 .pr .fill { height: 100%; border-radius: 7px; }
+/* 目标参考线：没有它读者看不出谁达标 */
+.pr .track .target {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  background: var(--ink-muted);
+  opacity: 0.85;
+}
 .pr .v {
   font-size: var(--fs-body);
   font-weight: 700;
@@ -413,6 +426,17 @@ html, body {
   text-align: right;
   min-width: 68px;
 }
+/* 目标标签行 */
+.pr-axis { align-items: end; }
+.pr-axis .track-note { position: relative; height: 18px; }
+.pr-axis .track-note span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: var(--fs-note);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.pr-scale { font-size: var(--fs-note); color: var(--ink-muted); text-align: right; }
 
 /* ---------- 时间轴 ---------- */
 
@@ -528,6 +552,8 @@ html, body {
 .t-neutral { color: var(--neutral-text); }
 .t-accent { color: var(--accent-text); }
 .t-muted { color: var(--ink-muted); }
+/* 在灰底/灰字块里把某段文字提回正常墨色 —— 灰字里用加粗做强调等于没强调 */
+.t-ink { color: var(--ink); }
 .bg-good { background: var(--good); color: #fff; }
 .bg-warn { background: var(--warn); color: var(--ink-on-accent); }
 .bg-bad { background: var(--bad); color: #fff; }

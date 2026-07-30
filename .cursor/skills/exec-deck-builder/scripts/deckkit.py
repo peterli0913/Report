@@ -81,7 +81,7 @@ class Theme:
     # 但当成 12pt 小字压在深底上就达不到 WCAG 4.5:1。所以两组分开定义。
     good_text: str = "2DBF77"
     warn_text: str = "EE9A4A"
-    bad_text: str = "FF8F82"
+    bad_text: str = "FF8A85"
     neutral_text: str = "A0B0C4"
     accent_text: str = "E5B620"
     primary_text: str = "6FB0EA"
@@ -191,10 +191,17 @@ class Theme:
         def tune(hexc):
             h = self.color(hexc)
             r, g, b = [int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4)]
-            hh, _, ss = colorsys.rgb_to_hls(r, g, b)
+            hh, ll, ss = colorsys.rgb_to_hls(r, g, b)
             best = None
-            for i in range(2, 99):
-                rr, gg, bb = colorsys.hls_to_rgb(hh, i / 100.0, ss)
+            # 深底从暗往亮搜、浅底从亮往暗搜，两种情况都停在"刚好达标"那一档。
+            # 搜索方向反了会一路走到极端，把文字色压成近黑或推成近白。
+            steps = range(2, 99) if want_brighter else range(98, 1, -1)
+            for i in steps:
+                l2 = i / 100.0
+                # 只提亮不补饱和度，绿/橙/红会一起被洗成难以分辨的淡彩，
+                # "绿=达成、橙=关注"的语义就失效了。所以按提亮幅度同步加饱和度。
+                s2 = min(1.0, ss * (1 + 2.0 * abs(l2 - ll)))
+                rr, gg, bb = colorsys.hls_to_rgb(hh, l2, s2)
                 cand = "%02X%02X%02X" % (round(rr * 255), round(gg * 255),
                                          round(bb * 255))
                 lc = self.luminance(cand)
@@ -223,12 +230,12 @@ LIGHT = Theme(
     hairline="D2DDEA",
     ink="14243C", ink_muted="576C89", ink_on_accent="14243C",
     primary="1E6FBF", secondary="2AA9DB", accent="C8880C",
-    good="1A7F50", warn="A34E0F", bad="C2372F", neutral="8496AC",
+    good="1A7F50", warn="A34E0F", bad="C62828", neutral="8496AC",
     # 浅底上文字要往暗走（深底是往亮走），所以整组与 DARK 相反
-    good_text="1A7A4D", warn_text="A34E0F", bad_text="B8332B",
+    good_text="1A7A4D", warn_text="A34E0F", bad_text="C62828",
     neutral_text="596C84", accent_text="906209", primary_text="1D6CBA",
     secondary_text="197396",
-    series=("1E6FBF", "C8880C", "2AA9DB", "1A7F50", "7B5CB8", "C2372F"),
+    series=("1E6FBF", "C8880C", "2AA9DB", "1A7F50", "7B5CB8", "C62828"),
     dark=False,
 )
 
@@ -241,8 +248,8 @@ SLATE = Theme(
     hairline="3D4854",
     ink="F0F3F6", ink_muted="A3AEBB",
     primary="4C8DBF", secondary="6BB8C9", accent="E2A93B",
-    good_text="2DBD76", bad_text="FF8F82", neutral_text="97A8BD",
-    accent_text="E2A93B", primary_text="7CACD0", secondary_text="6BB8C9",
+    good_text="2DBD76", bad_text="FF8A85", neutral_text="97A8BD",
+    accent_text="E8B93F", primary_text="7CACD0", secondary_text="6BB8C9",
     series=("4C8DBF", "E2A93B", "6BB8C9", "5FA97F", "A78BC4", "CC6155"),
 )
 
@@ -500,6 +507,29 @@ def set_fill_alpha(shape, transparency: float):
     a.set("val", str(int(max(0.0, min(100.0, 100 - transparency)) * 1000)))
     clr.append(a)
     return shape
+
+
+def set_label_number_format(data_label, fmt: str):
+    """给逐点数据标签写数字格式。
+
+    python-pptx 的 DataLabel 没有 number_format 属性，赋值只会挂在 Python 对象上、
+    不写进 XML。而逐点 <c:dLbl> 会覆盖绘图区级的格式设置，所以饼图/环形图一旦
+    逐点改了标签颜色，绘图区上设的 number_format 就失效了 —— 百分号会静默消失。
+    """
+    if not fmt:
+        return
+    from pptx.oxml import parse_xml
+    from pptx.oxml.ns import nsdecls
+    dLbl = data_label._get_or_add_dLbl()
+    for old in dLbl.findall(qn("c:numFmt")):
+        dLbl.remove(old)
+    nf = parse_xml('<c:numFmt %s sourceLinked="0"/>' % nsdecls("c"))
+    nf.set("formatCode", fmt)
+    # CT_DLbl 的子元素顺序：idx, layout, tx, numFmt, spPr, txPr, dLblPos, show*
+    dLbl.insert_element_before(nf, "c:spPr", "c:txPr", "c:dLblPos",
+                               "c:showLegendKey", "c:showVal", "c:showCatName",
+                               "c:showSerName", "c:showPercent",
+                               "c:showBubbleSize", "c:separator")
 
 
 def clear_shadow(shape):
@@ -985,7 +1015,7 @@ class Slide:
 
     def progress_bars(self, items, at: Rect | None = None, size=None,
                       bar_h=0.20, gap=0.30, show_target=True, target=100.0,
-                      align="middle"):
+                      align="middle", target_label=None):
         """达成率条组。items: [{label, value(数值，通常 0-120), text?, color?}]
 
         比饼图更适合"多个指标 vs 目标"：条形起点对齐，一眼看出谁没达标。
@@ -1024,14 +1054,17 @@ class Slide:
             # 第一根条形压住，居中排列时又会飘在条形上方一大截。
             tx = track_x + track_w * min(target, vmax) / vmax
             bars_bottom = y + step * (n - 1) + bar_h
-            self.line(tx, y - 0.10, tx, bars_bottom + 0.10, "ink_muted", 1.0,
-                      dash="DASH")
-            self.text(Rect(tx - 0.6, y - label_h - 0.04, 1.2, 0.26),
-                      "目标 %g%%" % target, size=theme.size_note,
-                      color="ink_muted", align="center", anchor="bottom")
+            lbl = Rect(tx - 0.7, y - label_h, 1.4, 0.24)
+            # 虚线起点留在标签下沿之外：插进文字里会看着像个多余的标点
+            self.line(tx, lbl.bottom + 0.02, tx, bars_bottom + 0.10,
+                      "ink_muted", 1.0, dash="DASH")
+            self.text(lbl, target_label or ("目标 %g%%" % target),
+                      size=theme.size_note, color="ink_muted", align="center",
+                      anchor="bottom")
         for it, v in zip(items, vals):
+            # 阈值与 HTML 版的 svg_chart.progress 保持一致：差 5% 以内算"接近"
             c = it.get("color") or ("good" if v >= target else
-                                    "warn" if v >= target * 0.9 else "bad")
+                                    "warn" if v >= target * 0.95 else "bad")
             self.text(Rect(at.x, y - 0.04, label_w, bar_h + 0.08),
                       it.get("label", ""), size=size, color="ink",
                       anchor="middle")
@@ -1236,16 +1269,30 @@ class Slide:
               legend=None, data_labels=None, number_format=None,
               colors=None, gap_width=60, overlap=None, smooth=False,
               value_axis=True, category_axis=True, max_scale=None,
-              min_scale=None, label_position=None, title=None):
+              min_scale=None, label_position=None, title=None,
+              target=None, target_label="目标"):
         """原生 PowerPoint 图表（可在 PPT 里继续编辑数据，别用图片代替）。
 
         kind: bar(纵向柱) / hbar(横向条) / stacked / hstacked / line / area /
-              pie / doughnut / scatter_line / radar
+              pie / doughnut / radar
         series: [(名称, [数值...]), ...]
         默认样式：无边框、无标题、淡网格线、主题配色、单序列自动隐藏图例。
+
+        target 给折线图加一条水平参考线（灰色虚线，用于"趋势 vs 目标"）。
+        柱状图不支持 —— PowerPoint 的组合图 python-pptx 画不出来，柱图要表达目标
+        请改用 progress_bars，或者把目标值写进标题和结论条。
         """
         theme = self.theme
         at = at or self.body
+        # 目标线用一个常量序列实现，样式在下面单独处理
+        target_idx = None
+        if target is not None:
+            if kind in ("line", "line_markers", "area", "radar"):
+                series = list(series) + [(target_label,
+                                          [target] * len(categories))]
+                target_idx = len(series) - 1
+            else:
+                target = None      # 其余图型画不了，静默忽略比画错好
         ctype = {
             "bar": XL_CHART_TYPE.COLUMN_CLUSTERED,
             "column": XL_CHART_TYPE.COLUMN_CLUSTERED,
@@ -1290,6 +1337,7 @@ class Slide:
             apply_font(ch.chart_title.text_frame.paragraphs[0].font, theme,
                        size=theme.size_h * self.deck.scale, bold=True, color="ink")
 
+        # 有目标线时必须显示图例，否则读者不知道那条灰虚线是什么
         multi = len(series) > 1
         show_legend = multi if legend is None else legend
         ch.has_legend = bool(show_legend)
@@ -1317,6 +1365,19 @@ class Slide:
             # 同色 —— 传了四个颜色却全渲染成第一个，是静默错误，很难看出来。
             per_point = bars and single and colors is not None
             for i, s in enumerate(ch.series):
+                if i == target_idx:
+                    # 目标线：灰虚线、无标记点，不能抢实际数据的视觉重量
+                    from pptx.enum.dml import MSO_LINE_DASH_STYLE
+                    s.format.line.color.rgb = RGBColor.from_string(
+                        theme.color(theme.neutral_text))
+                    s.format.line.width = self._p(1.5)
+                    s.format.line.dash_style = MSO_LINE_DASH_STYLE.DASH
+                    s.smooth = False
+                    try:
+                        s.marker.style = -4142        # xlNone
+                    except (AttributeError, ValueError):
+                        pass
+                    continue
                 if per_point:
                     for j, pt in enumerate(s.points):
                         pt.format.fill.solid()
@@ -1382,6 +1443,8 @@ class Slide:
                     apply_font(pt.data_label.font, theme,
                                size=theme.size_small * self.deck.scale, bold=True,
                                color=theme.ink_on(pal[i % len(pal)]))
+                    # 逐点 dLbl 会覆盖绘图区级的格式，必须在这里补回来
+                    set_label_number_format(pt.data_label, number_format)
 
         if not is_pie:
             if hasattr(plot, "gap_width"):
@@ -1718,23 +1781,34 @@ def audit_theme(theme: Theme, min_ratio: float = 4.5) -> list:
                           % (fn, fc, ratio("FFFFFF", fc),
                              ratio(theme.ink_on_accent, fc)))
 
-    # 语义色之间要能区分。亮度接近且色相接近的两个语义色会让读者误读页面性质。
-    import colorsys
+    # 语义色之间要能区分。达标的对比度只保证"读得出字"，保证不了"分得出含义"——
+    # 把语义色一起提亮到达标后，绿/橙/金常常挤成一片难分的淡彩。
+    def dist(c1, c2):
+        """加权 RGB 距离，近似人眼色差。满量程约 765。"""
+        a = [int(theme.color(c1)[i:i + 2], 16) for i in (0, 2, 4)]
+        b = [int(theme.color(c2)[i:i + 2], 16) for i in (0, 2, 4)]
+        rm = (a[0] + b[0]) / 2.0
+        dr, dg, db = a[0] - b[0], a[1] - b[1], a[2] - b[2]
+        return math.sqrt((2 + rm / 256) * dr * dr + 4 * dg * dg
+                         + (2 + (255 - rm) / 256) * db * db)
 
-    def hue(c):
-        h = theme.color(c)
-        r, g, b = [int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4)]
-        return colorsys.rgb_to_hls(r, g, b)[0]
-
-    pairs = [("accent", "warn"), ("good", "secondary"), ("bad", "warn")]
-    for a, b in pairs:
+    # 混淆代价不同，阈值分级：把"未达成"看成"需关注"会误导决策，
+    # 把"重点"看成"需关注"只是少了点层次。
+    pairs = [
+        (("good", "warn"), 90), (("good", "bad"), 90), (("bad", "warn"), 90),
+        (("good_text", "warn_text"), 90), (("good_text", "bad_text"), 90),
+        (("bad_text", "warn_text"), 90),
+        (("good", "secondary"), 90), (("good_text", "secondary_text"), 90),
+        (("accent", "warn"), 45), (("accent_text", "warn_text"), 45),
+        (("accent", "good"), 60), (("accent_text", "good_text"), 60),
+    ]
+    for (a, b), lim in pairs:
         ca, cb = theme.color(getattr(theme, a)), theme.color(getattr(theme, b))
-        dh = abs(hue(ca) - hue(cb))
-        dh = min(dh, 1 - dh)
-        dl = abs(theme.luminance(ca) - theme.luminance(cb))
-        if dh < 0.035 and dl < 0.10:
-            issues.append("语义色 %s(#%s) 与 %s(#%s) 太接近，读者分不出含义"
-                          % (a, ca, b, cb))
+        d = dist(ca, cb)
+        if d < lim:
+            issues.append(
+                "语义色 %s(#%s) 与 %s(#%s) 色差仅 %.0f（需 %d），读者分不出含义"
+                % (a, ca, b, cb, d, lim))
     return issues
 
 

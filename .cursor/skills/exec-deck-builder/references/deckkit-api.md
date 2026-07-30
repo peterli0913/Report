@@ -93,7 +93,7 @@ s.kpi_row(items, at=None, cols=None, gap=None, card=True, height=None)
 s.chart(kind, categories, series, at=None, legend=None, data_labels=None,
         number_format=None, colors=None, gap_width=60, overlap=None, smooth=False,
         value_axis=True, category_axis=True, max_scale=None, min_scale=None,
-        label_position=None, title=None)
+        label_position=None, title=None, target=None, target_label="目标")
 ```
 
 `series` 是 `[(名称, [数值...]), ...]`。
@@ -105,6 +105,9 @@ s.chart(kind, categories, series, at=None, legend=None, data_labels=None,
 
 - `hbar` / `hstacked` **已反转类别顺序**，第一项显示在顶部；单序列时 `colors` 也
   跟着反转，所以你传入的颜色顺序始终对应你传入的类别顺序。
+- **但序列的上下顺序没反转，也不该反转。** 横向条形图里 PowerPoint 把第一个序列画在
+  每组的**下方**（这是它的固有约定，图例顺序也跟着）。想让某个序列显示在上面，
+  把它放在 `series` 列表的后面。类别会反转、序列不会，这两条放在一起容易误判。
 - 单序列自动隐藏图例，多序列自动显示在顶部。
 - 柱/条/饼默认开数据标签，折线/面积默认关（折线开了容易糊）。
 - 堆积图标签强制 `inEnd`（`outEnd` 会让 PowerPoint 报文件损坏），并按每段填充色
@@ -123,6 +126,21 @@ s.chart(kind, categories, series, at=None, legend=None, data_labels=None,
 - 折线、面积、雷达图始终按序列取色（按点着色对折线没有意义）。
 
 传语义名或 hex 都可以：`colors=["bad", "warn", "neutral", "hairline"]`。
+（避免用 `hairline` 当数据颜色，它在深底上几乎看不见，用 `neutral`。）
+
+**目标参考线**：`target=95` 给折线/面积/雷达图加一条灰色虚线，图例里显示为
+`target_label`。柱状图和条形图不支持 —— PowerPoint 的组合图 python-pptx 画不出来，
+传了会被静默忽略。柱图要表达目标，改用 `progress_bars`，或者把目标值写进标题和
+结论条。
+
+```python
+s.chart("line", months, [("闭环率", vals)], at=s.body,
+        target=95, target_label="目标 95%", min_scale=88, max_scale=98,
+        number_format='0.0"%"')
+```
+
+纵轴截断（`min_scale`）在数据集中于高位时很有用（91→96 在 0-100 轴上是一条平线），
+但刻度必须标出来，否则会夸大变化幅度。
 
 ### table —— 数据表
 
@@ -175,7 +193,13 @@ s.progress_bars(items, at=None, size=None, bar_h=0.20, gap=0.30,
 条长按 `max(target, 所有 value) × 1.04` 缩放，并在 `target` 处画虚线参考线 —— 不硬
 截断到 100，否则 103% 和 108% 会画成一样长。轨道末端因此总会露出一小段底色，
 这是刻意留的余量，不是画错了。不传 `color` 时按 `value` 与 `target` 的关系自动取
-good / warn / bad。
+good（达标）/ warn（差 5% 以内）/ bad。
+
+**值域集中在 90-100 时这个组件会失去分辨力**：四个值都在 94-98、缩放上限约 101，
+条长差不到 8%，肉眼分不出来，"谁没达标"只能靠颜色和参考线位置读。这种情况要么
+接受"靠颜色读"，要么改用表格把数值和缺口直接列出来。
+
+`target_label` 覆盖默认的「目标 X%」文字，用于非百分比指标（默认写死了百分号）。
 
 `align`：`middle` 垂直居中 / `top` 贴顶 / `fill` 撑满区域。开 `show_target` 时上方会
 占用 `0.28"` 放目标标签，虚线和标签跟着条形组走，不会被第一根条压住。

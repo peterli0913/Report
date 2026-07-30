@@ -15,9 +15,11 @@
   var idx = 0;
 
   // 截图和嵌入场景不需要翻页控件，用 ?hideui=1 关掉
-  if (/hideui/.test(location.search) || /hideui/.test(location.hash)) {
-    document.body.classList.add("hide-ui");
-  }
+  var q = location.search + location.hash;
+  if (/hideui/.test(q)) document.body.classList.add("hide-ui");
+  // ?theme=light 切浅色，便于截图对比两种主题的对比度
+  var tm = /theme=(\w+)/.exec(q);
+  if (tm) document.body.setAttribute("data-theme", tm[1]);
 
   function fit() {
     // 打印时交给 @page 处理，不要缩放

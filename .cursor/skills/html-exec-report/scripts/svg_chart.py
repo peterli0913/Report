@@ -65,6 +65,11 @@ def _esc(s):
     return _html.escape(str(s), quote=True)
 
 
+def _text_w(s, fs=13):
+    """估算文本像素宽度。中文按全角算，否则会低估近一半。"""
+    return sum(1.0 if ord(c) > 0x2E80 else 0.55 for c in str(s)) * fs
+
+
 def legend(series, colors=None):
     """图例。多序列时必须给，否则读者不知道哪个颜色是哪年。"""
     out = ['<div class="legend">']
@@ -147,11 +152,21 @@ def hbar(categories, values, colors=None, width=1160, height=340, unit="",
 
 
 def line(categories, series, colors=None, width=1160, height=340, unit="",
-         max_scale=None, min_scale=None, show_dots=True, ticks=5, area=False):
-    """折线图。看趋势用这个，不要用饼图。"""
-    L, R, T, B = 58, 14, 24, 34
+         max_scale=None, min_scale=None, show_dots=True, ticks=5, area=False,
+         target=None, target_label=None, show_values=False):
+    """折线图。看趋势用这个，不要用饼图。
+
+    unit 加在纵轴刻度上（折线默认不标数据点，标了容易糊成一片）。
+    target 画一条横向参考线，用于"趋势 vs 目标"。
+    show_values=True 时在每个数据点上方标数值。
+    """
+    # 右边距按最后一个类目标签的半宽预留：固定边距会把"2026Q2"这类长标签裁成
+    # "2026Q"，而裁完看起来仍像个正常标签，不逐页看图根本发现不了。
+    L = 58
+    R = max(14, _text_w(categories[-1]) / 2 + 6) if categories else 14
+    T, B = (26 if show_values else 24), 34
     pw, ph = width - L - R, height - T - B
-    vals = [v for _, s in series for v in s]
+    vals = [v for _, s in series for v in s] + ([target] if target is not None else [])
     vmax = max_scale or _nice_max(max(vals + [0]), ticks)
     vmin = 0 if min_scale is None else min_scale
     span = (vmax - vmin) or 1
@@ -164,9 +179,18 @@ def line(categories, series, colors=None, width=1160, height=340, unit="",
         o.append('<line class="grid" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f"/>'
                  % (L, y, width - R, y))
         o.append('<text class="lbl" x="%.1f" y="%.1f" text-anchor="end">%s</text>'
-                 % (L - 10, y + 4, _fmt(vmin + span * i / ticks)))
+                 % (L - 10, y + 4, _fmt(vmin + span * i / ticks, unit)))
     o.append('<line class="axis" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f"/>'
              % (L, T + ph, width - R, T + ph))
+
+    if target is not None and vmin <= target <= vmax:
+        ty = T + ph - ph * (target - vmin) / span
+        o.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" '
+                 'stroke="var(--ink-muted)" stroke-width="1.5" '
+                 'stroke-dasharray="6 5"/>' % (L, ty, width - R, ty))
+        o.append('<text class="lbl" x="%.1f" y="%.1f">%s</text>'
+                 % (L + 8, ty - 7,
+                    _esc(target_label or ("目标 " + _fmt(target, unit)))))
 
     for si, (_, sv) in enumerate(series):
         col = _c(colors[si] if colors else None, si)
@@ -184,6 +208,11 @@ def line(categories, series, colors=None, width=1160, height=340, unit="",
             for x, y in pts:
                 o.append('<circle cx="%.1f" cy="%.1f" r="4.5" fill="%s" '
                          'stroke="var(--bg)" stroke-width="2"/>' % (x, y, col))
+        if show_values:
+            for (x, y), v in zip(pts, sv):
+                o.append('<text class="val" x="%.1f" y="%.1f" '
+                         'text-anchor="middle">%s</text>'
+                         % (x, y - 12, _fmt(v, unit)))
     for i, cat in enumerate(categories):
         o.append('<text class="lbl" x="%.1f" y="%.1f" text-anchor="middle">%s</text>'
                  % (L + step * i, height - 12, _esc(cat)))
@@ -304,22 +333,47 @@ def donut(labels, values, colors=None, width=460, height=340, hole=0.58,
     return svg
 
 
-def progress(items, target=100.0):
-    """达成率条组（HTML，不是 SVG）。items = [{label, value, text?, color?}]"""
+def progress(items, target=100.0, show_target=True, min_scale=None,
+             target_label=None):
+    """达成率条组（HTML，不是 SVG）。items = [{label, value, text?, color?}]
+
+    在 target 处画参考线，否则读者无法看出谁达标了。
+
+    **值域集中时一定要传 min_scale。** 例如四个指标在 94-98 之间、目标 97，默认从 0
+    起算的话四根条长度差不到 5%，肉眼分不出来，"谁没达标"只能靠颜色和数字撑着。
+    传 min_scale=90 把起点抬高，长度差才读得出来。
+    """
+    vals = [float(i.get("value", 0)) for i in items]
+    lo = 0.0 if min_scale is None else float(min_scale)
+    hi = max([target] + vals) * (1.04 if min_scale is None else 1.01)
+    span = (hi - lo) or 1.0
+
+    def pct(v):
+        return max(0.0, min(100.0, (float(v) - lo) / span * 100))
+
     out = ['<div class="progress-list">']
-    vmax = max([target] + [float(i.get("value", 0)) for i in items]) * 1.04
-    for it in items:
-        v = float(it.get("value", 0))
+    if show_target:
+        out.append('<div class="pr pr-axis"><div class="l"></div>'
+                   '<div class="track-note"><span style="left:%.1f%%">%s</span>'
+                   '</div><div class="v"></div></div>'
+                   % (pct(target),
+                      _esc(target_label or ("目标 %g%%" % target))))
+    for it, v in zip(items, vals):
+        # 阈值与 PPT 版的 progress_bars 保持一致：差 5% 以内算"接近"
         c = it.get("color") or ("good" if v >= target
-                               else "warn" if v >= target * 0.9 else "bad")
+                                else "warn" if v >= target * 0.95 else "bad")
+        mark = ('<i class="target" style="left:%.1f%%"></i>' % pct(target)
+                if show_target else "")
         out.append(
             '<div class="pr"><div class="l">%s</div>'
             '<div class="track"><div class="fill" style="width:%.1f%%;'
-            'background:%s"></div></div>'
+            'background:%s"></div>%s</div>'
             '<div class="v t-%s">%s</div></div>'
-            % (_esc(it.get("label", "")), v / vmax * 100, _c(c),
+            % (_esc(it.get("label", "")), pct(v), _c(c), mark,
                c if c in SEM else "accent",
                _esc(it.get("text") or ("%g%%" % v))))
+    if min_scale is not None:
+        out.append('<div class="pr-scale">横轴起点 %g，用于放大差异</div>' % lo)
     out.append("</div>")
     return "".join(out)
 

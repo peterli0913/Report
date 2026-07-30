@@ -24,13 +24,17 @@ BG = os.path.join(os.path.dirname(os.path.abspath(OUT)) or ".", "cover-bg.png")
 
 # 色值取自 安全专篇1页.pptx 的 ppt/theme/theme2.xml，是现有模板的实际用色。
 # 正式对外材料请向品牌部门确认官方 VI 色值。
+#
+# 卡片底色（surface）刻意压得比较暗。底色越亮，语义文字色为了凑够 4.5:1 就得越亮，
+# 红/橙/绿会一起被洗成难以分辨的淡彩 —— "绿=达成、橙=关注"的语义就失效了。
+# 用 audit_theme() 可以查出这种情况；出现时应该调暗底色，而不是继续凑文字色。
 BRAND = DARK.variant(
     name="asymchem-brand",
     bg="003669",           # dk1 主色深蓝
     bg_alt="002A52",
-    surface="0B4880",
-    surface_alt="3263A7",  # dk2
-    hairline="4A79B8",
+    surface="0A3F70",      # 略亮于底色即可，再亮会把语义色洗白
+    surface_alt="14538C",
+    hairline="3A6DA8",
     ink="E7E6E6",          # lt2，模板正文实际用色
     ink_muted="A8C0DC",
     primary="4472C4",      # accent1

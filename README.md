@@ -58,16 +58,21 @@ sudo apt-get install -y libreoffice-impress poppler-utils fonts-noto-cjk
 
 跑一遍示例，确认环境没问题：
 
-```bash
-cd .cursor/skills/exec-deck-builder
-python3 assets/example_deck.py                       # 生成 11 页示例 PPT
-python3 assets/example_brand.py                      # 用现有模板配色 + 26.67x15 画布
-python3 scripts/check_deck.py assets/example_deck.pptx --strict   # 质检
-python3 scripts/render_deck.py assets/example_deck.pptx preview/ --grid  # 渲染成图
+下面的命令都输出到 `/tmp/demo`，不会改动仓库里的文件：
 
-cd ../html-exec-report
-python3 assets/build_example.py                      # 生成 10 页网页版汇报
-python3 scripts/shoot.py assets/example.html preview/  # 逐页截图
+```bash
+D=/tmp/demo && mkdir -p $D
+P=.cursor/skills/exec-deck-builder
+H=.cursor/skills/html-exec-report
+
+python3 $P/assets/example_deck.py  $D/示例.pptx        # 11 页示例 PPT
+python3 $P/assets/example_brand.py $D/品牌色.pptx      # 现有模板配色 + 26.67x15 画布
+python3 $P/scripts/check_deck.py   $D/示例.pptx --strict        # 质检
+python3 $P/scripts/render_deck.py  $D/示例.pptx $D/preview --grid   # 渲染成图
+
+python3 $H/assets/build_example.py $D/网页版.html      # 10 页网页版汇报
+python3 $H/scripts/shoot.py        $D/网页版.html $D/web-preview   # 逐页截图
+python3 $H/scripts/inline.py       $D/网页版.html $D/单文件.html    # 打包单文件
 ```
 
 三份示例可以直接打开看效果，也可以当模板改：
