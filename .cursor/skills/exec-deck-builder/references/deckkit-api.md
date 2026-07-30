@@ -10,29 +10,43 @@
 ## Deck
 
 ```python
-Deck(theme="dark", canvas="wide", template=None)
+Deck(theme="dark", canvas="wide", template=None, layout=None, keep_slides=False)
 ```
 
 | 参数 | 说明 |
 |---|---|
 | `theme` | `"dark"` / `"light"` / `"slate"`，或一个 `Theme` 实例 |
 | `canvas` | `"wide"` 13.333x7.5（默认，优先选这个）· `"large"` 26.67x15（贴合公司现有模板）· `"a4"` 11.69x8.27 · 或 `(宽, 高)` |
-| `template` | 传入 `.pptx` 路径则沿用该文件的母版与画布尺寸 |
+| `template` | 传入 `.pptx` 路径则沿用该文件的母版、版式与画布尺寸 |
+| `layout` | 默认版式名。套模板时指定带页眉 logo / 页脚的那个 |
+| `keep_slides` | 默认 `False`，即清空模板自带的幻灯片只留母版和版式 |
 
 属性：`deck.theme`、`deck.scale`（设计单位到实际画布的倍数）、`deck.slides`、
 `deck.canvas_w` / `deck.canvas_h`（实际画布英寸）、`deck.prs`（原始 `Presentation`）。
+
+套模板时的行为：画布尺寸以模板为准（改了背景图会被拉变形）；版式带来的空占位符
+会被删掉（否则「单击此处编辑标题」跟着导出）；`bg=None` 时不填底色，版式的背景图
+才不会被盖掉。
 
 ### 整页方法
 
 ```python
 deck.cover(title, subtitle=None, meta=None, kicker=None, image=None,
-           accent_block=True, scrim=52)
-deck.section(number, title, subtitle=None, agenda=None)
-deck.slide(title=None, eyebrow=None, sub=None, bg=None, rule=False) -> Slide
-deck.closing(title="讨论与决策事项", items=None, meta=None)
+           accent_block=True, scrim=52, layout=None, bg=None)
+deck.section(number, title, subtitle=None, agenda=None, layout=None, bg=None)
+deck.slide(title=None, eyebrow=None, sub=None, bg=None, rule=False,
+           layout=None) -> Slide
+deck.closing(title="讨论与决策事项", items=None, meta=None, layout=None, bg=None)
+deck.raw_slide(layout=None, keep_placeholders=False) -> Slide
+deck.layout(name)          # 按名称取版式，支持模糊匹配
+deck.list_layouts()        # 列出模板全部版式名
 deck.add_page_numbers(skip_first=True, total=True)
 deck.save(path)
 ```
+
+`raw_slide()` 建一页但不设背景、不加标题，用于封面这类要完全自己排的页面 ——
+套模板时它能保住版式自带的背景图。每页都可以用 `layout=` 单独指定版式（封面用
+一个、内容页用另一个）。
 
 - `cover(image=..., scrim=52)` 在图上压一层 52% 的半透明底色保证标题可读，图案本身
   透出来。照片类背景通常要调到 60-70。**不要自己用不透明矩形压图**，那等于没放图。
@@ -328,7 +342,17 @@ deck = Deck(theme=T, canvas="large")
 
 ### 版面
 
-`margin` 0.62（页边距）· `gap` 0.24（元素间距）· `radius` 0.045（圆角占短边比例）
+`margin` 0.62（左右页边距）· `gap` 0.24（元素间距）· `radius` 0.045（圆角占短边比例）
+
+`margin_top` / `margin_bottom` 默认跟随 `margin`，套企业模板时单独放大以让开版式里
+固定的页眉 logo 和页脚色条。只读属性 `theme.mt` / `theme.mb` 取生效值，
+`title()`、`body`、`note()`、`page_number()` 都按它们定位。
+
+```python
+T = LIGHT.variant(margin=0.58, margin_top=1.30, margin_bottom=0.52)
+```
+
+`body` 的下沿会再让出 0.36 英寸给 `note()` / `page_number()`，所以内容不会和页脚叠。
 
 ### 辅助方法
 

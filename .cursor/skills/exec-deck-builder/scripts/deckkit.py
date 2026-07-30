@@ -110,10 +110,21 @@ class Theme:
     size_note: float = 9.5       # 脚注/数据来源
 
     # 版面
-    margin: float = 0.62         # 页边距
+    margin: float = 0.62         # 页边距（四边默认值）
+    # 套企业模板时上下边距通常要单独放大，避开版式里固定的页眉 logo 和页脚色条
+    margin_top: float | None = None
+    margin_bottom: float | None = None
     gap: float = 0.24            # 元素间距
     radius: float = 0.045        # 圆角占短边比例
     dark: bool = True            # 深色主题标记，影响图表网格线等细节
+
+    @property
+    def mt(self) -> float:
+        return self.margin if self.margin_top is None else self.margin_top
+
+    @property
+    def mb(self) -> float:
+        return self.margin if self.margin_bottom is None else self.margin_bottom
 
     def color(self, key: str) -> str:
         """按语义名或直接 hex 取色，方便调用方写 'good' / 'accent' / 'FF0000'。"""
@@ -553,7 +564,7 @@ class Slide:
         self.deck = deck
         self.raw = slide
         self.theme = deck.theme
-        self._title_bottom = deck.theme.margin
+        self._title_bottom = deck.theme.mt
         if bg is not None:
             self.set_bg(bg)
 
@@ -571,15 +582,21 @@ class Slide:
 
     @property
     def safe(self) -> Rect:
-        m = self.theme.margin
-        return Rect(m, m, BASE_W - 2 * m, BASE_H - 2 * m)
+        t = self.theme
+        return Rect(t.margin, t.mt, BASE_W - 2 * t.margin,
+                    BASE_H - t.mt - t.mb)
 
     @property
     def body(self) -> Rect:
-        """标题之下、脚注之上的内容区。加过标题后自动下移。"""
-        m = self.theme.margin
+        """标题之下、脚注之上的内容区。加过标题后自动下移。
+
+        底部留出 0.36 英寸给 note / page_number —— 只留 0.12 的话页脚会和内容
+        最后一个区块叠在一起。
+        """
+        t = self.theme
         top = self._title_bottom
-        return Rect(m, top, BASE_W - 2 * m, BASE_H - top - m - 0.12)
+        return Rect(t.margin, top, BASE_W - 2 * t.margin,
+                    BASE_H - top - t.mb - 0.36)
 
     # ---- 背景 ----
     def set_bg(self, color: str):
@@ -718,7 +735,7 @@ class Slide:
         """
         theme = self.theme
         m = theme.margin
-        y = m
+        y = theme.mt        # 标题从上边距起，套模板时这里要让开页眉 logo
         w = BASE_W - 2 * m
         if eyebrow:
             self.text(Rect(m, y, w, 0.24), eyebrow, size=theme.size_eyebrow,
@@ -740,18 +757,23 @@ class Slide:
         self._title_bottom = y + 0.06
         return self
 
+    # 页脚基线：贴在内容区下沿之内。放到 mb 之外会压上模板页脚的色条或保密标。
+    @property
+    def _foot_y(self) -> float:
+        return BASE_H - self.theme.mb - 0.22
+
     def note(self, text, color="ink_muted"):
         """页脚注释/数据来源。高层汇报里的数字必须能溯源。"""
-        m = self.theme.margin
-        self.text(Rect(m, BASE_H - m + 0.04, BASE_W - 2 * m, 0.24), text,
-                  size=self.theme.size_note, color=color, anchor="top")
+        t = self.theme
+        self.text(Rect(t.margin, self._foot_y, BASE_W - 2 * t.margin, 0.24),
+                  text, size=t.size_note, color=color, anchor="top")
         return self
 
     def page_number(self, n, total=None):
         txt = "%d" % n if total is None else "%d / %d" % (n, total)
-        self.text(Rect(BASE_W - self.theme.margin - 1.0,
-                       BASE_H - self.theme.margin + 0.04, 1.0, 0.24), txt,
-                  size=self.theme.size_note, color="ink_muted", align="right")
+        t = self.theme
+        self.text(Rect(BASE_W - t.margin - 1.0, self._foot_y, 1.0, 0.24), txt,
+                  size=t.size_note, color="ink_muted", align="right")
         return self
 
     # ------------------------------------------------------------------
@@ -921,7 +943,7 @@ class Slide:
         kind: accent(结论) / good(达成) / warn(关注) / bad(风险) / surface(中性)
         """
         theme = self.theme
-        at = at or Rect(theme.margin, BASE_H - theme.margin - 0.86,
+        at = at or Rect(theme.margin, BASE_H - theme.mb - 0.86,
                         BASE_W - 2 * theme.margin, 0.86)
         fill = kind if kind in ("accent", "good", "warn", "bad", "primary",
                                 "secondary") else "surface"
@@ -1515,9 +1537,16 @@ class Slide:
 # --------------------------------------------------------------------------
 
 class Deck:
-    """一份演示文稿。"""
+    """一份演示文稿。
 
-    def __init__(self, theme="dark", canvas="wide", template=None):
+    套用企业模板时传 template + layout：模板版式自带的页眉 logo、页脚保密标、
+    背景图会被继承，不需要自己重画，也就不会和公司标准差一两个像素。
+
+        deck = Deck(theme=T, template="公司模板.pptx", layout="2_自定义版式")
+    """
+
+    def __init__(self, theme="dark", canvas="wide", template=None, layout=None,
+                 keep_slides=False):
         self.prs = Presentation(template) if template else Presentation()
         if isinstance(canvas, str):
             cw, chh = CANVAS.get(canvas, CANVAS["wide"])
@@ -1527,21 +1556,73 @@ class Deck:
             self.prs.slide_width = Inches(cw)
             self.prs.slide_height = Inches(chh)
         else:
+            # 模板的画布尺寸优先：改了尺寸背景图就会被拉变形
             cw = self.prs.slide_width / 914400
             chh = self.prs.slide_height / 914400
+            if not keep_slides:
+                self._clear_slides()
         self.canvas_w, self.canvas_h = cw, chh
         # 设计单位 -> 实际画布的缩放系数，组件因此与画布尺寸解耦
         self.scale = cw / BASE_W
         self.theme = THEMES.get(theme, DARK) if isinstance(theme, str) else theme
-        self._blank = self._pick_blank_layout()
+        self._templated = template is not None
+        self._blank = (self.layout(layout) if layout
+                       else self._pick_blank_layout())
         self.slides: list[Slide] = []
-        self._sync_theme_fonts()
+        if template is None:
+            self._sync_theme_fonts()
+
+    def _clear_slides(self):
+        """删掉模板自带的幻灯片，只留母版和版式。"""
+        rel_id = ("{http://schemas.openxmlformats.org/officeDocument/2006/"
+                  "relationships}id")
+        lst = self.prs.slides._sldIdLst
+        for sld in list(lst):
+            try:
+                self.prs.part.drop_rel(sld.get(rel_id))
+            except KeyError:
+                pass
+            lst.remove(sld)
+
+    def layout(self, name):
+        """按名称取版式（支持模糊匹配）。名称列表见 list_layouts()。"""
+        if name is None:
+            return self._blank
+        for master in self.prs.slide_masters:
+            for lo in master.slide_layouts:
+                if (lo.name or "").strip() == str(name).strip():
+                    return lo
+        for master in self.prs.slide_masters:
+            for lo in master.slide_layouts:
+                if str(name).strip() in (lo.name or ""):
+                    return lo
+        raise ValueError("找不到版式 %r，可用：%s"
+                         % (name, ", ".join(self.list_layouts())))
+
+    def list_layouts(self):
+        return [lo.name for m in self.prs.slide_masters for lo in m.slide_layouts]
 
     def _pick_blank_layout(self):
         for lo in self.prs.slide_layouts:
             if (lo.name or "").strip().lower() in ("blank", "空白"):
                 return lo
         return self.prs.slide_layouts[-1]
+
+    @staticmethod
+    def _strip_placeholders(slide, keep=("SLIDE_NUMBER",)):
+        """清掉版式带来的空占位符，保留页码这类要自动填充的。
+
+        不清的话，"单击此处编辑标题"会跟着一起导出，而且占位符的默认字体和字号
+        会盖过我们自己排的版。
+        """
+        for ph in list(slide.placeholders):
+            try:
+                kind = str(ph.placeholder_format.type)
+            except Exception:
+                kind = ""
+            if any(k in kind for k in keep):
+                continue
+            ph._element.getparent().remove(ph._element)
 
     def _sync_theme_fonts(self):
         """把主题字体写进 theme part，这样用户后续手动加的文本框也是对的字体。"""
@@ -1559,30 +1640,55 @@ class Deck:
             pass  # 拿不到 theme part 不影响正常输出，元素字体都是显式写的
 
     # ---- 页面 ----
-    def slide(self, title=None, eyebrow=None, sub=None, bg=None, rule=False):
-        s = Slide(self, self.prs.slides.add_slide(self._blank),
-                  bg or self.theme.bg)
+    def raw_slide(self, layout=None, keep_placeholders=False):
+        """新建一页但不设背景、不加标题。套模板时用它保住版式自带的背景图。"""
+        raw = self.prs.slides.add_slide(self.layout(layout) if layout
+                                       else self._blank)
+        if not keep_placeholders:
+            self._strip_placeholders(raw)
+        s = Slide(self, raw, None)
+        self.slides.append(s)
+        return s
+
+    def slide(self, title=None, eyebrow=None, sub=None, bg=None, rule=False,
+              layout=None):
+        """新建内容页。
+
+        bg=None 且套了模板时不覆盖背景 —— 填一层底色会把版式的 logo 和装饰盖掉。
+        """
+        s = self._new(layout, bg, self.theme.bg)
         if title:
             s.title(title, eyebrow=eyebrow, sub=sub, rule=rule)
+        return s
+
+    def _new(self, layout=None, bg=None, default_bg=None):
+        """建一页并按"是否套模板"决定要不要填底色。"""
+        raw = self.prs.slides.add_slide(self.layout(layout) if layout
+                                       else self._blank)
+        self._strip_placeholders(raw)
+        if bg is None and self._templated:
+            fill = None          # 套模板时不填底色，否则会盖掉版式的 logo 和装饰
+        else:
+            fill = bg or default_bg
+        s = Slide(self, raw, fill)
         self.slides.append(s)
         return s
 
     def cover(self, title, subtitle=None, meta=None, kicker=None,
-              image=None, accent_block=True, scrim=52):
+              image=None, accent_block=True, scrim=52, layout=None, bg=None):
         """封面。深色底 + 大标题 + 一条强调色块。
 
         传 image 时会压一层 scrim% 的半透明底色，保证标题可读；图案本身透出来。
         照片类背景可能需要更高的 scrim（60-70）。
         """
         t = self.theme
-        s = Slide(self, self.prs.slides.add_slide(self._blank), t.bg_alt)
-        self.slides.append(s)
+        s = self._new(layout, bg, t.bg_alt)
         if image:
             s.bg_image(image)
             s.rect(s.page, fill=t.bg_alt, radius=0, transparency=100 - scrim)
         m = t.margin + 0.24
         box = Rect(m, 0, BASE_W - 2 * m, BASE_H)
-        y = BASE_H * 0.30
+        y = t.mt + (BASE_H - t.mt - t.mb) * 0.26
         if kicker:
             s.text(Rect(m, y - 0.42, box.w, 0.30), kicker, size=t.size_eyebrow + 1,
                    bold=True, color="accent")
@@ -1603,20 +1709,20 @@ class Deck:
                    color="ink_muted", line_spacing=1.3)
             y += sh + 0.16
         if meta:
-            s.line(m, BASE_H - t.margin - 0.62, BASE_W - m,
-                   BASE_H - t.margin - 0.62, "hairline", 0.75)
-            s.text(Rect(m, BASE_H - t.margin - 0.48, box.w, 0.30), meta,
+            s.line(m, BASE_H - t.mb - 0.62, BASE_W - m,
+                   BASE_H - t.mb - 0.62, "hairline", 0.75)
+            s.text(Rect(m, BASE_H - t.mb - 0.48, box.w, 0.30), meta,
                    size=t.size_small, color="ink_muted")
         return s
 
-    def section(self, number, title, subtitle=None, agenda=None):
+    def section(self, number, title, subtitle=None, agenda=None, layout=None,
+                bg=None):
         """章节过渡页。给听众一个"我们讲到哪了"的锚点。"""
         t = self.theme
-        s = Slide(self, self.prs.slides.add_slide(self._blank), t.bg_alt)
-        self.slides.append(s)
+        s = self._new(layout, bg, t.bg_alt)
         m = t.margin + 0.24
         w = BASE_W - 2 * m
-        cy = BASE_H * 0.42
+        cy = t.mt + (BASE_H - t.mt - t.mb) * 0.34
         if number:
             nsize = t.size_section_title * 1.5
             nh = nsize * 1.3 / 72.0     # 框高必须容得下字号，否则会被裁
@@ -1632,7 +1738,7 @@ class Deck:
             s.text(Rect(m, y, w * 0.78, 0.6), subtitle, size=t.size_cover_sub,
                    color="ink_muted", line_spacing=1.3, fit=True)
         if agenda:
-            ay = BASE_H - t.margin - 0.42
+            ay = BASE_H - t.mb - 0.42
             xs = Rect(m, ay, w, 0.32).grid(len(agenda), 1, 0.16)
             for i, (item, cell) in enumerate(zip(agenda, xs), 1):
                 on = str(i) == str(number).lstrip("0") or item == title
@@ -1640,24 +1746,24 @@ class Deck:
                        bold=on, color="accent" if on else "ink_muted")
         return s
 
-    def closing(self, title="讨论与决策事项", items=None, meta=None):
+    def closing(self, title="讨论与决策事项", items=None, meta=None,
+                layout=None, bg=None):
         """结尾页：不要写"谢谢"，写你要对方决策什么。"""
         t = self.theme
-        s = Slide(self, self.prs.slides.add_slide(self._blank), t.bg_alt)
-        self.slides.append(s)
+        s = self._new(layout, bg, t.bg_alt)
         m = t.margin + 0.24
         w = BASE_W - 2 * m
-        y = BASE_H * (0.26 if items else 0.42)
+        y = t.mt + (BASE_H - t.mt - t.mb) * (0.10 if items else 0.34)
         s.rect(Rect(m, y, 0.09, 0.56), fill="accent", radius=0)
         s.text(Rect(m + 0.30, y, w - 0.30, 0.62), title,
                size=t.size_section_title, bold=True, color="ink")
         y += 0.86
         if items:
             s.bullets(items, Rect(m + 0.30, y, w - 0.30,
-                                  BASE_H - y - t.margin - 0.5),
+                                  BASE_H - y - t.mb - 0.5),
                       size=t.size_h, marker="num", gap=0.18)
         if meta:
-            s.text(Rect(m, BASE_H - t.margin - 0.40, w, 0.30), meta,
+            s.text(Rect(m, BASE_H - t.mb - 0.40, w, 0.30), meta,
                    size=t.size_small, color="ink_muted")
         return s
 

@@ -135,19 +135,63 @@ s.progress_bars(items, at=bot, align="fill")
 
 完整参数见 `references/deckkit-api.md`。
 
+## 套用公司现有模板（推荐做法）
+
+需要页眉 logo、页脚保密标、品牌背景时，**直接把公司模板当 template 用**，
+不要自己重画那些元素 —— 位置和公司标准差一两个像素就很明显。
+
+```python
+deck = Deck(theme=T, template="公司模板.pptx", layout="2_自定义版式")
+print(deck.list_layouts())        # 先看模板有哪些版式
+s = deck.slide(title="行动标题", eyebrow="栏目")   # 背景不动，logo 与页脚自动继承
+```
+
+`Deck(template=...)` 会自动：继承画布尺寸、清空模板自带的幻灯片（只留母版与
+版式）、删掉版式带来的空占位符（否则「单击此处编辑标题」会跟着导出）。
+`bg=None` 时不填底色，版式的背景图才不会被盖掉。
+
+### 套模板的四步
+
+1. **列出版式，找到带背景图和页脚的那个**。同一个模板通常有多个：封面用一个、
+   内容页用另一个。用 `list_layouts()` 看名字，逐个建一页渲染出来比对。
+2. **量出安全内容区**。把版式背景图从 pptx 里解出来（`ppt/media/`），扫描非白
+   区域的上下边界 —— 页眉 logo 和页脚色条占掉的高度就是不能放内容的地方。
+3. **用 `margin_top` / `margin_bottom` 让开这些固定元素**：
+
+```python
+T = LIGHT.variant(
+    margin=0.58,          # 左右，通常对齐 logo 左边缘
+    margin_top=1.30,      # 让开页眉 logo
+    margin_bottom=0.52,   # 让开页脚色条
+)
+```
+
+`title()`、`body`、`note()`、`page_number()` 都按这两个值定位，设好之后组件
+自己会避开。**不设的话标题会直接压在 logo 上。**
+
+4. **渲染逐页比对**，确认 logo、页脚、页码都在该在的位置。
+
+### 页脚怎么处理
+
+模板通常已经有保密标或版权行。自己再加 `note()` 时注意：
+
+- 模板页脚多在右下角，所以数据来源要限宽，别延伸到它下面。
+- **不要把文字压在模板的页脚色条上。** 那种色条常带渐变，叠一个色块很难对齐得
+  不露痕迹；放在色条上方的白底区域用灰字更稳。
+
 ## 换成企业品牌色
 
 ```python
 from deckkit import DARK, Deck
 
-T = DARK.variant(bg="003669", bg_alt="002A52", surface="0B4880",
+T = DARK.variant(bg="003669", bg_alt="002A52", surface="0A3F70",
                  primary="3263A7", accent="E5B620").with_readable_text()
 deck = Deck(theme=T, canvas="large")     # large = 26.67x15，与现有模板同尺寸
 ```
 
 **改过底色一定要接 `.with_readable_text()`**：底色一变，原本达标的语义文字色
 （绿/红/灰）就可能掉到 4.5:1 以下。这类问题在显示器上不明显，投屏时直接消失。
-改完还要重跑 `check_deck.py` 确认。
+改完还要跑 `audit_theme()` 和 `check_deck.py` 确认。
 
 现有模板的实际用色见 `exec-visual-system` skill。
 
@@ -204,6 +248,21 @@ deck = Deck(theme=T, canvas="large")     # large = 26.67x15，与现有模板同
   `callout(kind="accent")` 算一处，KPI 卡里 `color="accent"` 的大数字也算一处。
   某一页确实要提示风险，用 `kind="warn"` 或 `kind="bad"`，不要再叠一个 accent。
 - **不要让组件默认撑满 `body`。** 先按上面的「组件占位高度」表算好再切区域。
+- **卡片内部不要用固定偏移排版。** `ii.y + 1.4` 这种写法在卡片高度一变（改了区域
+  比例、加了副标题）就会和底部元素撞在一起。用「顶部元素向下累加、底部元素向上
+  固定、中间那块吃掉剩余空间」：
+
+```python
+iy = ii.y
+s.text(Rect(ii.x, iy, ii.w, 0.26), label, size=12.5)      # 顶部，向下累加
+iy += 0.32
+band_top = ii.bottom - 0.34                                # 底部，向上固定
+s.text(Rect(ii.x, iy, ii.w, band_top - iy - 0.10), desc,   # 中间吃掉剩余
+       fit=True, min_pt=10)
+```
+
+- **中文文案里的引号用全角「」或“”。** 在 Python 双引号字符串里写半角引号会把
+  字符串截断成语法错误，而且中文排版本来就该用全角。
 - **深色底配图片要压一层半透明色块**，否则图上的文字读不清。用
   `s.rect(..., transparency=45)` 或 `deck.cover(image=..., scrim=52)`，
   **不透明的色块会把图整张盖住**。
